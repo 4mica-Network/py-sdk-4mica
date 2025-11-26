@@ -95,7 +95,9 @@ class RpcProxy:
         return await self._get(f"/core/tabs/{_serialize_tab_id(tab_id)}/guarantees")
 
     async def get_latest_guarantee(self, tab_id: int) -> Optional[Dict[str, Any]]:
-        return await self._get(f"/core/tabs/{_serialize_tab_id(tab_id)}/guarantees/latest")
+        return await self._get(
+            f"/core/tabs/{_serialize_tab_id(tab_id)}/guarantees/latest"
+        )
 
     async def get_guarantee(self, tab_id: int, req_id: int) -> Optional[Dict[str, Any]]:
         return await self._get(
@@ -107,10 +109,10 @@ class RpcProxy:
     ) -> List[Dict[str, Any]]:
         return await self._get(f"/core/recipients/{recipient_address}/payments")
 
-    async def get_collateral_events_for_tab(
-        self, tab_id: int
-    ) -> List[Dict[str, Any]]:
-        return await self._get(f"/core/tabs/{_serialize_tab_id(tab_id)}/collateral-events")
+    async def get_collateral_events_for_tab(self, tab_id: int) -> List[Dict[str, Any]]:
+        return await self._get(
+            f"/core/tabs/{_serialize_tab_id(tab_id)}/collateral-events"
+        )
 
     async def get_user_asset_balance(
         self, user_address: str, asset_address: str

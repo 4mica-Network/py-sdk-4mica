@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import List, Optional
 
 from .bls_utils import signature_to_words
@@ -8,9 +7,6 @@ from .config import Config
 from .contract import ContractGateway
 from .errors import (
     ClientInitializationError,
-    ContractError,
-    RpcError,
-    SigningError,
     VerificationError,
 )
 from .guarantee import decode_guarantee_claims
@@ -86,7 +82,9 @@ class Client:
         )
 
     @staticmethod
-    async def _validate_chain_id(gateway: ContractGateway, expected_chain_id: int) -> None:
+    async def _validate_chain_id(
+        gateway: ContractGateway, expected_chain_id: int
+    ) -> None:
         try:
             chain_id = await gateway.w3.eth.chain_id
             if int(chain_id) != int(expected_chain_id):
@@ -101,7 +99,9 @@ class Client:
         try:
             return await gateway.contract.functions.guaranteeDomainSeparator().call()
         except Exception as exc:
-            raise ClientInitializationError(f"failed to fetch guarantee domain: {exc}") from exc
+            raise ClientInitializationError(
+                f"failed to fetch guarantee domain: {exc}"
+            ) from exc
 
     async def aclose(self) -> None:
         await self.rpc.aclose()
@@ -148,7 +148,9 @@ class UserClient:
         claims: PaymentGuaranteeRequestClaims,
         scheme: SigningScheme = SigningScheme.EIP712,
     ) -> PaymentSignature:
-        return await self.client._signer.sign_request(self.client.params, claims, scheme)
+        return await self.client._signer.sign_request(
+            self.client.params, claims, scheme
+        )
 
     async def pay_tab(
         self,
@@ -162,7 +164,9 @@ class UserClient:
             return await self.client.gateway.pay_tab_erc20(
                 tab_id, amount, erc20_token, recipient_address
             )
-        return await self.client.gateway.pay_tab_eth(tab_id, req_id, amount, recipient_address)
+        return await self.client.gateway.pay_tab_eth(
+            tab_id, req_id, amount, recipient_address
+        )
 
     async def request_withdrawal(
         self, amount: int, erc20_token: Optional[str] = None
@@ -243,7 +247,7 @@ class RecipientClient:
         return claims
 
     async def remunerate(self, cert: BLSCert) -> dict:
-        claims = self.verify_payment_guarantee(cert)
+        self.verify_payment_guarantee(cert)
         sig_words = signature_to_words(cert.signature)
         claims_bytes = bytes.fromhex(cert.claims.removeprefix("0x"))
         return await self.client.gateway.remunerate(claims_bytes, sig_words)
@@ -253,7 +257,9 @@ class RecipientClient:
         return [TabInfo.from_rpc(tab) for tab in tabs]
 
     async def list_pending_remunerations(self) -> List[PendingRemunerationInfo]:
-        items = await self.client.rpc.list_pending_remunerations(self._recipient_address)
+        items = await self.client.rpc.list_pending_remunerations(
+            self._recipient_address
+        )
         return [PendingRemunerationInfo.from_rpc(item) for item in items]
 
     async def get_tab(self, tab_id: int) -> Optional[TabInfo]:
@@ -281,7 +287,9 @@ class RecipientClient:
         return GuaranteeInfo.from_rpc(result) if result else None
 
     async def list_recipient_payments(self) -> List[RecipientPaymentInfo]:
-        payments = await self.client.rpc.list_recipient_payments(self._recipient_address)
+        payments = await self.client.rpc.list_recipient_payments(
+            self._recipient_address
+        )
         return [RecipientPaymentInfo.from_rpc(p) for p in payments]
 
     async def get_collateral_events_for_tab(
@@ -293,5 +301,7 @@ class RecipientClient:
     async def get_user_asset_balance(
         self, user_address: str, asset_address: str
     ) -> Optional[AssetBalanceInfo]:
-        balance = await self.client.rpc.get_user_asset_balance(user_address, asset_address)
+        balance = await self.client.rpc.get_user_asset_balance(
+            user_address, asset_address
+        )
         return AssetBalanceInfo.from_rpc(balance) if balance else None

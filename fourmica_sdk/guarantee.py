@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Union
 
 from eth_abi import decode as abi_decode
@@ -39,7 +38,9 @@ def _ensure_domain_bytes(domain: Union[str, bytes]) -> bytes:
 
 def encode_guarantee_claims(claims: PaymentGuaranteeClaims) -> bytes:
     if claims.version != 1:
-        raise VerificationError(f"unsupported guarantee claims version: {claims.version}")
+        raise VerificationError(
+            f"unsupported guarantee claims version: {claims.version}"
+        )
 
     domain = _ensure_domain_bytes(claims.domain)
     encoded_claims = abi_encode(
@@ -62,7 +63,9 @@ def encode_guarantee_claims(claims: PaymentGuaranteeClaims) -> bytes:
 
 
 def decode_guarantee_claims(data: Union[str, bytes]) -> PaymentGuaranteeClaims:
-    raw_bytes = bytes.fromhex(remove_0x_prefix(data)) if isinstance(data, str) else bytes(data)
+    raw_bytes = (
+        bytes.fromhex(remove_0x_prefix(data)) if isinstance(data, str) else bytes(data)
+    )
     version, encoded = abi_decode(["uint64", "bytes"], raw_bytes)
 
     if version != 1:

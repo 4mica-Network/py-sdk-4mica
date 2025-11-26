@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol
 
 import httpx
 
@@ -13,6 +13,9 @@ from .models import (
     SigningScheme,
 )
 from .utils import normalize_address, parse_u256
+
+if TYPE_CHECKING:
+    from .client import Client
 
 
 @dataclass
@@ -74,12 +77,13 @@ class X402SettledPayment:
 class FlowSigner(Protocol):
     async def sign_payment(
         self, claims: PaymentGuaranteeRequestClaims, scheme: SigningScheme
-    ) -> PaymentSignature:
-        ...
+    ) -> PaymentSignature: ...
 
 
 class X402Flow:
-    def __init__(self, signer: FlowSigner, client: Optional[httpx.AsyncClient] = None) -> None:
+    def __init__(
+        self, signer: FlowSigner, client: Optional[httpx.AsyncClient] = None
+    ) -> None:
         self.signer = signer
         self.http = client or httpx.AsyncClient()
 
@@ -97,7 +101,9 @@ class X402Flow:
 
         envelope = self._build_envelope(payment_requirements, claims, signature)
         header_bytes = base64.b64encode(self._json_dumps(envelope).encode()).decode()
-        return X402SignedPayment(header=header_bytes, claims=claims, signature=signature)
+        return X402SignedPayment(
+            header=header_bytes, claims=claims, signature=signature
+        )
 
     async def settle_payment(
         self,

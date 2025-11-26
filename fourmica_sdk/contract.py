@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import warnings
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +18,7 @@ with warnings.catch_warnings():
         from web3 import AsyncHTTPProvider, AsyncWeb3
     except ImportError:  # pragma: no cover - unexpected layout
         from web3 import AsyncWeb3
+
         AsyncHTTPProvider = None  # type: ignore
 
 # Fallback imports for older web3 layouts.
@@ -115,7 +115,9 @@ class ContractGateway:
         built = func.build_transaction(tx)
         return await self._build_and_send(built)
 
-    async def deposit(self, amount: int, erc20_token: Optional[str] = None) -> Dict[str, Any]:
+    async def deposit(
+        self, amount: int, erc20_token: Optional[str] = None
+    ) -> Dict[str, Any]:
         if erc20_token:
             token = normalize_address(erc20_token)
             func = self.contract.functions.depositStablecoin(token, parse_u256(amount))
@@ -207,7 +209,9 @@ class ContractGateway:
 
     async def cancel_withdrawal(self, erc20_token: Optional[str]) -> Dict[str, Any]:
         if erc20_token:
-            func = self.contract.functions.cancelWithdrawal(normalize_address(erc20_token))
+            func = self.contract.functions.cancelWithdrawal(
+                normalize_address(erc20_token)
+            )
         else:
             func = self.contract.functions.cancelWithdrawal()
         tx = await self._prepare_tx(func)
@@ -216,14 +220,18 @@ class ContractGateway:
 
     async def finalize_withdrawal(self, erc20_token: Optional[str]) -> Dict[str, Any]:
         if erc20_token:
-            func = self.contract.functions.finalizeWithdrawal(normalize_address(erc20_token))
+            func = self.contract.functions.finalizeWithdrawal(
+                normalize_address(erc20_token)
+            )
         else:
             func = self.contract.functions.finalizeWithdrawal()
         tx = await self._prepare_tx(func)
         built = func.build_transaction(tx)
         return await self._build_and_send(built)
 
-    async def remunerate(self, claims_blob: bytes, signature_words: List[bytes]) -> Dict[str, Any]:
+    async def remunerate(
+        self, claims_blob: bytes, signature_words: List[bytes]
+    ) -> Dict[str, Any]:
         sig_struct = [
             to_bytes(hexstr=word) if not isinstance(word, (bytes, bytearray)) else word
             for word in signature_words

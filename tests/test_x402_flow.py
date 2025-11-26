@@ -36,7 +36,9 @@ async def test_sign_payment_rejects_invalid_scheme():
         extra={"tabEndpoint": "https://example.com"},
     )
     with pytest.raises(X402Error):
-        await flow.sign_payment(requirements, "0x0000000000000000000000000000000000000001")
+        await flow.sign_payment(
+            requirements, "0x0000000000000000000000000000000000000001"
+        )
 
 
 @pytest.mark.asyncio
@@ -72,6 +74,10 @@ def test_build_claims_rejects_user_mismatch():
         asset="0x0000000000000000000000000000000000000000",
         extra={"tabEndpoint": "https://example.com"},
     )
-    tab = TabResponse(tab_id="3", user_address="0x00000000000000000000000000000000000000aa")
+    tab = TabResponse(
+        tab_id="3", user_address="0x00000000000000000000000000000000000000aa"
+    )
     with pytest.raises(X402Error):
-        flow._build_claims(requirements, tab, "0x00000000000000000000000000000000000000bb")
+        flow._build_claims(
+            requirements, tab, "0x00000000000000000000000000000000000000bb"
+        )

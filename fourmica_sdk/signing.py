@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
 from eth_abi import encode as abi_encode
 from eth_account import Account
@@ -12,7 +11,9 @@ from .models import PaymentGuaranteeRequestClaims, PaymentSignature, SigningSche
 from .utils import ValidationError, normalize_address
 
 
-def _build_typed_message(params: "CorePublicParameters", claims: PaymentGuaranteeRequestClaims):
+def _build_typed_message(
+    params: "CorePublicParameters", claims: PaymentGuaranteeRequestClaims
+):
     """Mirror the Solidity struct hashing used in the Rust SDK."""
     return {
         "types": {
@@ -111,7 +112,9 @@ class PaymentSigner:
         claims: PaymentGuaranteeRequestClaims,
         scheme: SigningScheme = SigningScheme.EIP712,
     ) -> PaymentSignature:
-        if normalize_address(self.account.address) != normalize_address(claims.user_address):
+        if normalize_address(self.account.address) != normalize_address(
+            claims.user_address
+        ):
             raise SigningError(
                 f"address mismatch: signer {self.account.address} "
                 f"!= claims.user_address {claims.user_address}"
@@ -130,7 +133,9 @@ class PaymentSigner:
     ) -> PaymentSignature:
         try:
             if scheme == SigningScheme.EIP712:
-                message = encode_typed_data(full_message=_build_typed_message(params, claims))
+                message = encode_typed_data(
+                    full_message=_build_typed_message(params, claims)
+                )
                 signed = self.account.sign_message(message)
             elif scheme == SigningScheme.EIP191:
                 payload = _encode_eip191(claims)

@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .errors import ConfigError
-from .utils import ValidationError, normalize_address, normalize_private_key, validate_url
+from .utils import (
+    ValidationError,
+    normalize_address,
+    normalize_private_key,
+    validate_url,
+)
 
 
 @dataclass

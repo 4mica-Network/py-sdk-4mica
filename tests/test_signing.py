@@ -34,9 +34,7 @@ async def test_sign_request_rejects_address_mismatch():
 
 @pytest.mark.asyncio
 async def test_sign_request_eip712_produces_signature():
-    private_key = (
-        "0x59c6995e998f97a5a0044976f7be35d5ad91c0cfa55b5cfb20b07a1c60f4c5bc"
-    )
+    private_key = "0x59c6995e998f97a5a0044976f7be35d5ad91c0cfa55b5cfb20b07a1c60f4c5bc"
     account = Account.from_key(private_key)
     signer = PaymentSigner(private_key)
     claims = PaymentGuaranteeRequestClaims.new(

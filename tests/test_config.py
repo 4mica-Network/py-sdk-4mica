@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from fourmica_sdk.config import ConfigBuilder
