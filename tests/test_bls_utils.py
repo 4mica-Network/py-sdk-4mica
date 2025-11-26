@@ -16,5 +16,5 @@ def test_signature_to_words_prompts_for_optional_dependency(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
-    with pytest.raises(VerificationError, match="py-sdk-4mica\\[bls\\]"):
+    with pytest.raises(VerificationError, match="sdk-4mica\\[bls\\]"):
         signature_to_words("0x" + "00" * 96)

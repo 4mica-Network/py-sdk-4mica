@@ -1,5 +1,5 @@
 [project]
-name = "py-sdk-4mica"
+name = "sdk-4mica"
 version = "0.1.0"
 description = "Python SDK for interacting with the 4Mica payment network."
 authors = [{ name = "4Mica Network", email = "cto@4mica.xyz" }]

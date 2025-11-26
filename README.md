@@ -5,9 +5,9 @@ An asyncio-first Python port of the Rust SDK for interacting with the 4Mica paym
 ## Installation
 
 ```bash
-pip install ./py-sdk-4mica           # from this repo
+pip install .           # from this repo
 # Optional: remuneration requires BLS decoding
-pip install 'py-sdk-4mica[bls]'
+pip install 'sdk-4mica[bls]'
 ```
 
 ## Quick start
@@ -82,5 +82,5 @@ Environment variables mirror the Rust SDK:
 ## Notes
 
 - All methods are `async`; use `asyncio.run` or your event loop of choice.
-- Remuneration requires `py-ecc` (`pip install 'py-sdk-4mica[bls]'`) to expand BLS signatures into the on-chain format.
+- Remuneration requires `py-ecc` (`pip install 'sdk-4mica[bls]'`) to expand BLS signatures into the on-chain format.
 - Numeric values accept `int` or hex/decimal strings and are serialized to `0x`-prefixed hex when sent to the facilitator.

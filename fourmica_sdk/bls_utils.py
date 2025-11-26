@@ -24,7 +24,7 @@ def signature_to_words(signature_hex: str) -> List[bytes]:
     except ImportError as exc:
         raise VerificationError(
             "py-ecc is required to decode BLS signatures; "
-            "install py-sdk-4mica[bls] to enable remuneration."
+            "install sdk-4mica[bls] to enable remuneration."
         ) from exc
 
     try:
