@@ -201,6 +201,11 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Editor/OS noise
+.DS_Store
+.idea/
+.vscode/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
