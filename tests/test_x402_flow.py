@@ -86,9 +86,7 @@ def test_build_claims_rejects_user_mismatch():
 
 
 class RecordingSigner:
-    async def sign_payment(
-        self, claims, scheme: SigningScheme
-    ) -> PaymentSignature:
+    async def sign_payment(self, claims, scheme: SigningScheme) -> PaymentSignature:
         return PaymentSignature(signature="0xsig", scheme=scheme)
 
 
@@ -124,17 +122,13 @@ async def test_x402_flow_settles_payment_through_facilitator():
         return httpx.Response(404)
 
     transport = httpx.MockTransport(handler)
-    flow = X402Flow(
-        RecordingSigner(), httpx.AsyncClient(transport=transport)
-    )
+    flow = X402Flow(RecordingSigner(), httpx.AsyncClient(transport=transport))
 
     try:
         payment = await flow.sign_payment(requirements, user_address)
         assert payment.claims.tab_id == 0x1234
 
-        settled = await flow.settle_payment(
-            payment, requirements, facilitator_url
-        )
+        settled = await flow.settle_payment(payment, requirements, facilitator_url)
         assert settled.settlement["settled"] is True
         assert settled.settlement["networkId"] == requirements.network
         assert settled.payment.claims.recipient_address == requirements.pay_to
