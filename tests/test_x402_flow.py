@@ -1,6 +1,8 @@
 import base64
 import json
 
+import httpx
+
 import pytest
 
 from fourmica_sdk.errors import X402Error
@@ -81,3 +83,60 @@ def test_build_claims_rejects_user_mismatch():
         flow._build_claims(
             requirements, tab, "0x00000000000000000000000000000000000000bb"
         )
+
+
+class RecordingSigner:
+    async def sign_payment(
+        self, claims, scheme: SigningScheme
+    ) -> PaymentSignature:
+        return PaymentSignature(signature="0xsig", scheme=scheme)
+
+
+@pytest.mark.asyncio
+async def test_x402_flow_settles_payment_through_facilitator():
+    user_address = "0x0000000000000000000000000000000000000009"
+    tab_endpoint = "http://facilitator.test/tab"
+    facilitator_url = "http://facilitator.test"
+    requirements = PaymentRequirements(
+        scheme="4mica+pay",
+        network="testnet",
+        max_amount_required="5",
+        pay_to="0x00000000000000000000000000000000000000ff",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={"tabEndpoint": tab_endpoint},
+    )
+
+    def handler(request):
+        if request.url.path == "/tab":
+            assert request.method == "POST"
+            body = json.loads(request.content.decode())
+            assert body["user_address"] == user_address
+            return httpx.Response(
+                200, json={"tabId": "0x1234", "userAddress": user_address}
+            )
+        if request.url.path == "/settle":
+            payload = json.loads(request.content.decode())
+            assert payload["payment_requirements"]["pay_to"] == requirements.pay_to
+            return httpx.Response(
+                200,
+                json={"settled": True, "networkId": requirements.network},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    flow = X402Flow(
+        RecordingSigner(), httpx.AsyncClient(transport=transport)
+    )
+
+    try:
+        payment = await flow.sign_payment(requirements, user_address)
+        assert payment.claims.tab_id == 0x1234
+
+        settled = await flow.settle_payment(
+            payment, requirements, facilitator_url
+        )
+        assert settled.settlement["settled"] is True
+        assert settled.settlement["networkId"] == requirements.network
+        assert settled.payment.claims.recipient_address == requirements.pay_to
+    finally:
+        await flow.http.aclose()

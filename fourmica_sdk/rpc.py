@@ -39,7 +39,11 @@ class RpcProxy:
     async def _decode(self, response: httpx.Response) -> Any:
         try:
             payload = response.json()
-        except Exception:
+        except Exception as exc:
+            if response.is_success:
+                raise RpcError(
+                    f"invalid JSON response from {response.request.url}: {exc}"
+                ) from exc
             payload = response.text
         if response.is_success:
             return payload
