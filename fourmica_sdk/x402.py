@@ -32,6 +32,49 @@ class PaymentRequirements:
     output_schema: Optional[Any] = None
     max_timeout_seconds: Optional[int] = None
 
+    @classmethod
+    def from_raw(cls, raw: Dict[str, Any]) -> "PaymentRequirements":
+        def pick(keys, default=None):
+            for key in keys:
+                if key in raw and raw[key] is not None:
+                    return raw[key]
+            return default
+
+        amount = pick(["maxAmountRequired", "max_amount_required"])
+        pay_to = pick(["payTo", "pay_to"])
+        asset = pick(["asset", "assetAddress", "asset_address"])
+        scheme = pick(["scheme"])
+        network = pick(["network"])
+        if not all([amount, pay_to, asset, scheme, network]):
+            missing = [
+                k
+                for k, v in [
+                    ("scheme", scheme),
+                    ("network", network),
+                    ("maxAmountRequired", amount),
+                    ("payTo", pay_to),
+                    ("asset", asset),
+                ]
+                if not v
+            ]
+            raise X402Error(
+                f"payment requirements missing fields: {', '.join(missing)}"
+            )
+
+        return cls(
+            scheme=scheme,
+            network=network,
+            max_amount_required=str(amount),
+            pay_to=pay_to,
+            asset=asset,
+            extra=pick(["extra"], default={}) or {},
+            resource=pick(["resource"]),
+            description=pick(["description"]),
+            mime_type=pick(["mimeType", "mime_type"]),
+            output_schema=pick(["outputSchema", "output_schema"]),
+            max_timeout_seconds=pick(["maxTimeoutSeconds", "max_timeout_seconds"]),
+        )
+
     def to_payload(self) -> Dict[str, Any]:
         extra_payload = dict(self.extra or {})
         if "tab_endpoint" in extra_payload and "tabEndpoint" not in extra_payload:
@@ -129,9 +172,10 @@ class X402Flow:
         signature = await self.signer.sign_payment(claims, SigningScheme.EIP712)
 
         envelope = self._build_envelope(payment_requirements, claims, signature)
-        header_bytes = base64.b64encode(
-            self._json_dumps(envelope.to_payload()).encode()
-        ).decode()
+        payload = envelope.to_payload()
+        # Backwards-compatibility: facilitators require x402Version at the top level.
+        payload.setdefault("x402Version", envelope.x402_version)
+        header_bytes = base64.b64encode(self._json_dumps(payload).encode()).decode()
         return X402SignedPayment(
             header=header_bytes, claims=claims, signature=signature
         )

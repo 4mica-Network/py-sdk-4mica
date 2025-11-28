@@ -60,10 +60,32 @@ async def test_sign_payment_builds_header_and_payload():
     decoded_header = base64.b64decode(signed.header).decode()
     envelope = json.loads(decoded_header)
 
+    assert envelope["x402Version"] == 1
     assert envelope["scheme"] == "4mica+pay"
     assert envelope["payload"]["claims"]["tab_id"] == hex(2)
     assert signed.claims.tab_id == 2
     assert signed.claims.amount == 5
+
+
+def test_payment_requirements_from_raw_handles_casing_and_required_fields():
+    raw = {
+        "scheme": "4mica-credit",
+        "network": "polygon-amoy",
+        "maxAmountRequired": "0x1",
+        "payTo": "0xabc",
+        "asset": "0xdef",
+        "extra": {"tabEndpoint": "http://tab"},
+        "mimeType": "application/json",
+        "maxTimeoutSeconds": 300,
+    }
+    req = PaymentRequirements.from_raw(raw)
+    assert req.scheme == "4mica-credit"
+    assert req.network == "polygon-amoy"
+    assert req.max_amount_required == "0x1"
+    assert req.pay_to == "0xabc"
+    assert req.asset == "0xdef"
+    assert req.mime_type == "application/json"
+    assert req.max_timeout_seconds == 300
 
 
 def test_build_claims_rejects_user_mismatch():
