@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol
 
 import httpx
