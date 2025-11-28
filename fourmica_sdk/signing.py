@@ -84,7 +84,11 @@ class CorePublicParameters:
 
     @classmethod
     def from_rpc(cls, payload: dict) -> "CorePublicParameters":
-        pk = payload.get("public_key") if "public_key" in payload else payload.get("publicKey")
+        pk = (
+            payload.get("public_key")
+            if "public_key" in payload
+            else payload.get("publicKey")
+        )
         if isinstance(pk, str):
             pk_bytes = bytes.fromhex(pk.removeprefix("0x"))
         else:
