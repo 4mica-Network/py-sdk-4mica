@@ -32,10 +32,15 @@ from .utils import normalize_address, parse_u256, serialize_u256
 
 def _tab_status_from_rpc(status: dict) -> TabPaymentStatus:
     """Convert a payment status payload from the gateway into the public model."""
+    paid = status.get("paid") if "paid" in status else status.get("paidAmount")
+    remunerated = (
+        status.get("remunerated") if "remunerated" in status else status.get("paidOut")
+    )
+    asset = status.get("asset") if "asset" in status else status.get("assetAddress")
     return TabPaymentStatus(
-        paid=parse_u256(status["paid"]),
-        remunerated=bool(status["remunerated"]),
-        asset=status["asset"],
+        paid=parse_u256(paid),
+        remunerated=bool(remunerated),
+        asset=asset,
     )
 
 
@@ -205,9 +210,9 @@ class RecipientClient:
     ) -> int:
         self._check_signer(recipient_address)
         body = {
-            "user_address": normalize_address(user_address),
-            "recipient_address": normalize_address(recipient_address),
-            "erc20_token": normalize_address(erc20_token) if erc20_token else None,
+            "userAddress": normalize_address(user_address),
+            "recipientAddress": normalize_address(recipient_address),
+            "erc20Token": normalize_address(erc20_token) if erc20_token else None,
             "ttl": ttl,
         }
         result = await self.client.rpc.create_payment_tab(body)

@@ -33,8 +33,29 @@ class PaymentRequirements:
     max_timeout_seconds: Optional[int] = None
 
     def to_payload(self) -> Dict[str, Any]:
-        # Use asdict for clarity instead of relying on __dict__.
-        return asdict(self)
+        extra_payload = dict(self.extra or {})
+        if "tab_endpoint" in extra_payload and "tabEndpoint" not in extra_payload:
+            extra_payload["tabEndpoint"] = extra_payload.pop("tab_endpoint")
+
+        payload = {
+            "scheme": self.scheme,
+            "network": self.network,
+            "maxAmountRequired": self.max_amount_required,
+            "payTo": self.pay_to,
+            "asset": self.asset,
+            "extra": extra_payload,
+        }
+        if self.resource is not None:
+            payload["resource"] = self.resource
+        if self.description is not None:
+            payload["description"] = self.description
+        if self.mime_type is not None:
+            payload["mimeType"] = self.mime_type
+        if self.output_schema is not None:
+            payload["outputSchema"] = self.output_schema
+        if self.max_timeout_seconds is not None:
+            payload["maxTimeoutSeconds"] = self.max_timeout_seconds
+        return payload
 
 
 @dataclass
@@ -59,6 +80,14 @@ class X402PaymentEnvelope:
     scheme: str
     network: str
     payload: Dict[str, Any]
+
+    def to_payload(self) -> Dict[str, Any]:
+        return {
+            "x402Version": self.x402_version,
+            "scheme": self.scheme,
+            "network": self.network,
+            "payload": self.payload,
+        }
 
 
 @dataclass
@@ -100,7 +129,9 @@ class X402Flow:
         signature = await self.signer.sign_payment(claims, SigningScheme.EIP712)
 
         envelope = self._build_envelope(payment_requirements, claims, signature)
-        header_bytes = base64.b64encode(self._json_dumps(envelope).encode()).decode()
+        header_bytes = base64.b64encode(
+            self._json_dumps(envelope.to_payload()).encode()
+        ).decode()
         return X402SignedPayment(
             header=header_bytes, claims=claims, signature=signature
         )
@@ -115,9 +146,9 @@ class X402Flow:
         response = await self.http.post(
             url,
             json={
-                "x402_version": 1,
-                "payment_header": payment.header,
-                "payment_requirements": payment_requirements.to_payload(),
+                "x402Version": 1,
+                "paymentHeader": payment.header,
+                "paymentRequirements": payment_requirements.to_payload(),
             },
         )
         data = await response.aread()
@@ -135,8 +166,8 @@ class X402Flow:
         if not extra.tab_endpoint:
             raise X402Error("missing tabEndpoint in paymentRequirements.extra")
         payload = {
-            "user_address": user_address,
-            "payment_requirements": payment_requirements.to_payload(),
+            "userAddress": user_address,
+            "paymentRequirements": payment_requirements.to_payload(),
         }
         response = await self.http.post(extra.tab_endpoint, json=payload)
         if not response.is_success:

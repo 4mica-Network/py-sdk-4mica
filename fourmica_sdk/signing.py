@@ -84,7 +84,7 @@ class CorePublicParameters:
 
     @classmethod
     def from_rpc(cls, payload: dict) -> "CorePublicParameters":
-        pk = payload.get("public_key")
+        pk = payload.get("public_key") if "public_key" in payload else payload.get("publicKey")
         if isinstance(pk, str):
             pk_bytes = bytes.fromhex(pk.removeprefix("0x"))
         else:
@@ -92,11 +92,15 @@ class CorePublicParameters:
 
         return cls(
             public_key=pk_bytes,
-            contract_address=payload["contract_address"],
-            ethereum_http_rpc_url=payload["ethereum_http_rpc_url"],
-            eip712_name=payload.get("eip712_name", "4Mica"),
-            eip712_version=payload.get("eip712_version", "1"),
-            chain_id=int(payload["chain_id"]),
+            contract_address=payload.get("contract_address")
+            or payload.get("contractAddress"),
+            ethereum_http_rpc_url=payload.get("ethereum_http_rpc_url")
+            or payload.get("ethereumHttpRpcUrl"),
+            eip712_name=payload.get("eip712_name", payload.get("eip712Name", "4Mica")),
+            eip712_version=payload.get(
+                "eip712_version", payload.get("eip712Version", "1")
+            ),
+            chain_id=int(payload.get("chain_id") or payload.get("chainId")),
         )
 
 

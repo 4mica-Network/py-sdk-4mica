@@ -17,12 +17,12 @@ def _proxy_with_transport(handler) -> RpcProxy:
 @pytest.mark.asyncio
 async def test_rpc_proxy_get_public_params_round_trip():
     params = {
-        "public_key": [1, 2, 3],
-        "contract_address": "0x1234567890abcdef1234567890abcdef12345678",
-        "ethereum_http_rpc_url": "http://localhost:8545",
-        "eip712_name": "4mica",
-        "eip712_version": "1",
-        "chain_id": 1337,
+        "publicKey": [1, 2, 3],
+        "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
+        "ethereumHttpRpcUrl": "http://localhost:8545",
+        "eip712Name": "4mica",
+        "eip712Version": "1",
+        "chainId": 1337,
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -33,8 +33,8 @@ async def test_rpc_proxy_get_public_params_round_trip():
     try:
         got = await proxy.get_public_params()
         assert got.chain_id == 1337
-        assert got.contract_address == params["contract_address"]
-        assert got.ethereum_http_rpc_url == params["ethereum_http_rpc_url"]
+        assert got.contract_address == params["contractAddress"]
+        assert got.ethereum_http_rpc_url == params["ethereumHttpRpcUrl"]
     finally:
         await proxy.aclose()
 
@@ -42,7 +42,7 @@ async def test_rpc_proxy_get_public_params_round_trip():
 @pytest.mark.asyncio
 async def test_rpc_proxy_surfaces_api_errors():
     def handler(request: httpx.Request) -> httpx.Response:
-        assert "settlement_status=unknown" in str(request.url)
+        assert "settlementStatus=unknown" in str(request.url)
         payload = {"error": "invalid settlement status: unknown"}
         return httpx.Response(400, json=payload)
 

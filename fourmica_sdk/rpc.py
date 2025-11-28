@@ -91,7 +91,7 @@ class RpcProxy:
     ) -> List[Dict[str, Any]]:
         query = ""
         if settlement_statuses:
-            query = "".join([f"&settlement_status={s}" for s in settlement_statuses])
+            query = "".join([f"&settlementStatus={s}" for s in settlement_statuses])
             query = f"?{query.lstrip('&')}"
         return await self._get(f"/core/recipients/{recipient_address}/tabs{query}")
 

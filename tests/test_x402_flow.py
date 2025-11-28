@@ -108,13 +108,13 @@ async def test_x402_flow_settles_payment_through_facilitator():
         if request.url.path == "/tab":
             assert request.method == "POST"
             body = json.loads(request.content.decode())
-            assert body["user_address"] == user_address
+            assert body["userAddress"] == user_address
             return httpx.Response(
                 200, json={"tabId": "0x1234", "userAddress": user_address}
             )
         if request.url.path == "/settle":
             payload = json.loads(request.content.decode())
-            assert payload["payment_requirements"]["pay_to"] == requirements.pay_to
+            assert payload["paymentRequirements"]["payTo"] == requirements.pay_to
             return httpx.Response(
                 200,
                 json={"settled": True, "networkId": requirements.network},
