@@ -210,9 +210,9 @@ class RecipientClient:
     ) -> int:
         self._check_signer(recipient_address)
         body = {
-            "userAddress": normalize_address(user_address),
-            "recipientAddress": normalize_address(recipient_address),
-            "erc20Token": normalize_address(erc20_token) if erc20_token else None,
+            "user_address": normalize_address(user_address),
+            "recipient_address": normalize_address(recipient_address),
+            "erc20_token": normalize_address(erc20_token) if erc20_token else None,
             "ttl": ttl,
         }
         result = await self.client.rpc.create_payment_tab(body)
