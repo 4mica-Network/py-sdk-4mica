@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Type
 
-from .bls_utils import signature_to_words
+from .bls_utils import signature_to_words, verify_bls_signature
 from .config import Config
 from .contract import ContractGateway
 from .errors import (
     ClientInitializationError,
+    CreateTabError,
+    IssuePaymentGuaranteeError,
+    RecipientQueryError,
+    RemunerateError,
+    RpcError,
+    SigningError,
+    VerifyGuaranteeError,
     VerificationError,
 )
 from .guarantee import decode_guarantee_claims
@@ -27,7 +34,7 @@ from .models import (
 )
 from .rpc import RpcProxy
 from .signing import CorePublicParameters, PaymentSigner
-from .utils import normalize_address, parse_u256, serialize_u256
+from .utils import ValidationError, normalize_address, parse_u256, serialize_u256
 
 
 def _tab_status_from_rpc(status: dict) -> TabPaymentStatus:
@@ -67,8 +74,9 @@ class Client:
 
     @classmethod
     async def new(cls, cfg: Config) -> "Client":
-        rpc = RpcProxy(cfg.rpc_url, cfg.admin_api_key)
+        rpc = RpcProxy(cfg.rpc_url)
         params = await rpc.get_public_params()
+        cls._validate_operator_public_key(params.public_key)
         gateway = cls._build_gateway(cfg, params)
         await cls._validate_chain_id(gateway, params.chain_id)
         guarantee_domain = await cls._fetch_guarantee_domain(gateway)
@@ -107,6 +115,14 @@ class Client:
             raise ClientInitializationError(
                 f"failed to fetch guarantee domain: {exc}"
             ) from exc
+
+    @staticmethod
+    def _validate_operator_public_key(public_key: bytes) -> None:
+        if len(public_key) != 48:
+            raise ClientInitializationError(
+                "invalid operator public key length: "
+                f"expected 48 bytes, got {len(public_key)}"
+            )
 
     async def aclose(self) -> None:
         await self.rpc.aclose()
@@ -153,9 +169,11 @@ class UserClient:
         claims: PaymentGuaranteeRequestClaims,
         scheme: SigningScheme = SigningScheme.EIP712,
     ) -> PaymentSignature:
-        return await self.client._signer.sign_request(
-            self.client.params, claims, scheme
-        )
+        try:
+            params = await self.client.rpc.get_public_params()
+        except RpcError as exc:
+            raise SigningError(str(exc)) from exc
+        return await self.client._signer.sign_request(params, claims, scheme)
 
     async def pay_tab(
         self,
@@ -197,9 +215,13 @@ class RecipientClient:
     def guarantee_domain(self) -> bytes:
         return self.client.guarantee_domain
 
-    def _check_signer(self, expected: str) -> None:
-        if normalize_address(expected) != self._recipient_address:
-            raise VerificationError("signer address does not match recipient address")
+    def _check_signer(self, expected: str, error_cls: Type[Exception]) -> None:
+        try:
+            expected_address = normalize_address(expected)
+        except ValidationError as exc:
+            raise error_cls(f"invalid recipient address: {exc}") from exc
+        if expected_address != self._recipient_address:
+            raise error_cls("signer address does not match recipient address")
 
     async def create_tab(
         self,
@@ -208,14 +230,17 @@ class RecipientClient:
         erc20_token: Optional[str],
         ttl: Optional[int],
     ) -> int:
-        self._check_signer(recipient_address)
+        self._check_signer(recipient_address, CreateTabError)
         body = {
-            "user_address": normalize_address(user_address),
-            "recipient_address": normalize_address(recipient_address),
-            "erc20_token": normalize_address(erc20_token) if erc20_token else None,
+            "user_address": user_address,
+            "recipient_address": recipient_address,
+            "erc20_token": erc20_token,
             "ttl": ttl,
         }
-        result = await self.client.rpc.create_payment_tab(body)
+        try:
+            result = await self.client.rpc.create_payment_tab(body)
+        except RpcError as exc:
+            raise CreateTabError(str(exc), status_code=exc.status_code) from exc
         return parse_u256(result["id"])
 
     async def get_tab_payment_status(self, tab_id: int) -> TabPaymentStatus:
@@ -228,13 +253,14 @@ class RecipientClient:
         signature: str,
         scheme: SigningScheme,
     ) -> BLSCert:
-        self._check_signer(claims.recipient_address)
+        self._check_signer(claims.recipient_address, IssuePaymentGuaranteeError)
         payload = {
             "claims": {
                 "version": "v1",
                 "user_address": claims.user_address,
                 "recipient_address": claims.recipient_address,
                 "tab_id": serialize_u256(claims.tab_id),
+                "req_id": serialize_u256(claims.req_id),
                 "amount": serialize_u256(claims.amount),
                 "asset_address": claims.asset_address,
                 "timestamp": int(claims.timestamp),
@@ -242,71 +268,129 @@ class RecipientClient:
             "signature": signature,
             "scheme": scheme.value,
         }
-        cert = await self.client.rpc.issue_guarantee(payload)
+        try:
+            cert = await self.client.rpc.issue_guarantee(payload)
+        except RpcError as exc:
+            raise IssuePaymentGuaranteeError(
+                str(exc), status_code=exc.status_code
+            ) from exc
         return BLSCert(claims=cert["claims"], signature=cert["signature"])
 
     def verify_payment_guarantee(self, cert: BLSCert) -> PaymentGuaranteeClaims:
-        claims = decode_guarantee_claims(cert.claims)
+        try:
+            claims_bytes = bytes.fromhex(cert.claims.removeprefix("0x"))
+        except ValueError as exc:
+            raise VerifyGuaranteeError(
+                "invalid BLS certificate claims encoding"
+            ) from exc
+
+        public_key = getattr(self.client, "params", None)
+        if public_key is None or not hasattr(public_key, "public_key"):
+            raise VerifyGuaranteeError(
+                "missing operator public key for verification"
+            )
+        operator_public_key = bytes(public_key.public_key)
+
+        if not verify_bls_signature(operator_public_key, claims_bytes, cert.signature):
+            raise VerifyGuaranteeError("certificate signature mismatch")
+
+        claims = decode_guarantee_claims(claims_bytes)
         if claims.domain != self.guarantee_domain:
-            raise VerificationError("guarantee domain mismatch")
+            raise VerifyGuaranteeError("guarantee domain mismatch")
         return claims
 
     async def remunerate(self, cert: BLSCert) -> dict:
-        self.verify_payment_guarantee(cert)
-        sig_words = signature_to_words(cert.signature)
-        claims_bytes = bytes.fromhex(cert.claims.removeprefix("0x"))
+        try:
+            self.verify_payment_guarantee(cert)
+        except VerifyGuaranteeError as exc:
+            raise RemunerateError(str(exc)) from exc
+        try:
+            sig_words = signature_to_words(cert.signature)
+            claims_bytes = bytes.fromhex(cert.claims.removeprefix("0x"))
+        except VerificationError as exc:
+            raise RemunerateError(str(exc)) from exc
         return await self.client.gateway.remunerate(claims_bytes, sig_words)
 
     async def list_settled_tabs(self) -> List[TabInfo]:
-        tabs = await self.client.rpc.list_settled_tabs(self._recipient_address)
+        try:
+            tabs = await self.client.rpc.list_settled_tabs(self._recipient_address)
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return [TabInfo.from_rpc(tab) for tab in tabs]
 
     async def list_pending_remunerations(self) -> List[PendingRemunerationInfo]:
-        items = await self.client.rpc.list_pending_remunerations(
-            self._recipient_address
-        )
+        try:
+            items = await self.client.rpc.list_pending_remunerations(
+                self._recipient_address
+            )
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return [PendingRemunerationInfo.from_rpc(item) for item in items]
 
     async def get_tab(self, tab_id: int) -> Optional[TabInfo]:
-        result = await self.client.rpc.get_tab(tab_id)
+        try:
+            result = await self.client.rpc.get_tab(tab_id)
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return TabInfo.from_rpc(result) if result else None
 
     async def list_recipient_tabs(
         self, settlement_statuses: Optional[List[str]] = None
     ) -> List[TabInfo]:
-        tabs = await self.client.rpc.list_recipient_tabs(
-            self._recipient_address, settlement_statuses
-        )
+        try:
+            tabs = await self.client.rpc.list_recipient_tabs(
+                self._recipient_address, settlement_statuses
+            )
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return [TabInfo.from_rpc(tab) for tab in tabs]
 
     async def get_tab_guarantees(self, tab_id: int) -> List[GuaranteeInfo]:
-        guarantees = await self.client.rpc.get_tab_guarantees(tab_id)
+        try:
+            guarantees = await self.client.rpc.get_tab_guarantees(tab_id)
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return [GuaranteeInfo.from_rpc(g) for g in guarantees]
 
     async def get_latest_guarantee(self, tab_id: int) -> Optional[GuaranteeInfo]:
-        result = await self.client.rpc.get_latest_guarantee(tab_id)
+        try:
+            result = await self.client.rpc.get_latest_guarantee(tab_id)
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return GuaranteeInfo.from_rpc(result) if result else None
 
     async def get_guarantee(self, tab_id: int, req_id: int) -> Optional[GuaranteeInfo]:
-        result = await self.client.rpc.get_guarantee(tab_id, req_id)
+        try:
+            result = await self.client.rpc.get_guarantee(tab_id, req_id)
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return GuaranteeInfo.from_rpc(result) if result else None
 
     async def list_recipient_payments(self) -> List[RecipientPaymentInfo]:
-        payments = await self.client.rpc.list_recipient_payments(
-            self._recipient_address
-        )
+        try:
+            payments = await self.client.rpc.list_recipient_payments(
+                self._recipient_address
+            )
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return [RecipientPaymentInfo.from_rpc(p) for p in payments]
 
     async def get_collateral_events_for_tab(
         self, tab_id: int
     ) -> List[CollateralEventInfo]:
-        events = await self.client.rpc.get_collateral_events_for_tab(tab_id)
+        try:
+            events = await self.client.rpc.get_collateral_events_for_tab(tab_id)
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return [CollateralEventInfo.from_rpc(ev) for ev in events]
 
     async def get_user_asset_balance(
         self, user_address: str, asset_address: str
     ) -> Optional[AssetBalanceInfo]:
-        balance = await self.client.rpc.get_user_asset_balance(
-            user_address, asset_address
-        )
+        try:
+            balance = await self.client.rpc.get_user_asset_balance(
+                user_address, asset_address
+            )
+        except RpcError as exc:
+            raise RecipientQueryError(str(exc), status_code=exc.status_code) from exc
         return AssetBalanceInfo.from_rpc(balance) if balance else None

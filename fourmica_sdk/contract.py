@@ -43,7 +43,18 @@ except ImportError:  # pragma: no cover - compatibility path or removed
     except ImportError:
         async_geth_poa_middleware = None  # type: ignore
 
-from .errors import ContractError
+from .errors import (
+    ApproveErc20Error,
+    CancelWithdrawalError,
+    ContractError,
+    DepositError,
+    FinalizeWithdrawalError,
+    GetUserError,
+    PayTabError,
+    RemunerateError,
+    RequestWithdrawalError,
+    TabPaymentStatusError,
+)
 from .utils import load_abi, normalize_address, parse_u256
 
 
@@ -69,6 +80,13 @@ class ContractGateway:
             abi=load_abi("core4mica.json"),
         )
         self._erc20_cache: Dict[str, Any] = {}
+
+    def _fn(self, signature: str):
+        """Fetch a contract function by explicit signature (handles overloads)."""
+        getter = getattr(self.contract, "get_function_by_signature", None)
+        if getter:
+            return getter(signature)
+        return self.contract.functions[signature]
 
     async def _build_and_send(self, txn: Dict[str, Any]) -> Dict[str, Any]:
         """Sign, broadcast, and wait for receipt."""
@@ -99,6 +117,12 @@ class ContractGateway:
             pass
         return base
 
+    async def _build_tx(self, func, tx: Dict[str, Any]) -> Dict[str, Any]:
+        built = func.build_transaction(tx)
+        if hasattr(built, "__await__"):
+            built = await built
+        return built
+
     def _erc20(self, token_address: str):
         checksum = normalize_address(token_address)
         if checksum not in self._erc20_cache:
@@ -109,25 +133,35 @@ class ContractGateway:
         return self._erc20_cache[checksum]
 
     async def approve_erc20(self, token_address: str, amount: int) -> Dict[str, Any]:
-        contract = self._erc20(token_address)
-        func = contract.functions.approve(self.contract_address, parse_u256(amount))
-        tx = await self._prepare_tx(func)
-        built = func.build_transaction(tx)
-        return await self._build_and_send(built)
+        try:
+            contract = self._erc20(token_address)
+            func = contract.functions.approve(
+                self.contract_address, parse_u256(amount)
+            )
+            tx = await self._prepare_tx(func)
+            built = await self._build_tx(func, tx)
+            return await self._build_and_send(built)
+        except Exception as exc:
+            raise ApproveErc20Error(str(exc)) from exc
 
     async def deposit(
         self, amount: int, erc20_token: Optional[str] = None
     ) -> Dict[str, Any]:
-        if erc20_token:
-            token = normalize_address(erc20_token)
-            func = self.contract.functions.depositStablecoin(token, parse_u256(amount))
-            tx = await self._prepare_tx(func)
-            built = func.build_transaction(tx)
-        else:
-            func = self.contract.functions.deposit()
-            tx = await self._prepare_tx(func, value=parse_u256(amount))
-            built = func.build_transaction(tx)
-        return await self._build_and_send(built)
+        try:
+            if erc20_token:
+                token = normalize_address(erc20_token)
+                func = self.contract.functions.depositStablecoin(
+                    token, parse_u256(amount)
+                )
+                tx = await self._prepare_tx(func)
+                built = await self._build_tx(func, tx)
+            else:
+                func = self.contract.functions.deposit()
+                tx = await self._prepare_tx(func, value=parse_u256(amount))
+                built = await self._build_tx(func, tx)
+            return await self._build_and_send(built)
+        except Exception as exc:
+            raise DepositError(str(exc)) from exc
 
     async def get_user_assets(self) -> List[Dict[str, Any]]:
         try:
@@ -135,7 +169,7 @@ class ContractGateway:
                 self.account.address
             ).call()
         except Exception as exc:
-            raise ContractError(str(exc)) from exc
+            raise GetUserError(str(exc)) from exc
 
         assets: List[Dict[str, Any]] = []
         for asset in result:
@@ -155,7 +189,7 @@ class ContractGateway:
                 parse_u256(tab_id)
             ).call()
         except Exception as exc:
-            raise ContractError(str(exc)) from exc
+            raise TabPaymentStatusError(str(exc)) from exc
         return {
             "paid": parse_u256(paid),
             "remunerated": bool(remunerated),
@@ -165,78 +199,107 @@ class ContractGateway:
     async def pay_tab_eth(
         self, tab_id: int, req_id: int, amount: int, recipient: str
     ) -> Dict[str, Any]:
-        data = f"tab_id:{hex(int(tab_id))};req_id:{hex(int(req_id))}".encode()
-        tx = {
-            "to": normalize_address(recipient),
-            "from": self.account.address,
-            "value": parse_u256(amount),
-            "data": data,
-            "nonce": await self.w3.eth.get_transaction_count(self.account.address),
-            "chainId": self.chain_id,
-            "gas": 120_000,
-        }
         try:
-            tx["gasPrice"] = await self.w3.eth.gas_price
-        except Exception:
-            pass
-        return await self._build_and_send(tx)
+            data = f"tab_id:{hex(int(tab_id))};req_id:{hex(int(req_id))}".encode()
+            tx = {
+                "to": normalize_address(recipient),
+                "from": self.account.address,
+                "value": parse_u256(amount),
+                "data": data,
+                "nonce": await self.w3.eth.get_transaction_count(
+                    self.account.address
+                ),
+                "chainId": self.chain_id,
+                "gas": 120_000,
+            }
+            try:
+                tx["gasPrice"] = await self.w3.eth.gas_price
+            except Exception:
+                pass
+            return await self._build_and_send(tx)
+        except Exception as exc:
+            raise PayTabError(str(exc)) from exc
 
     async def pay_tab_erc20(
         self, tab_id: int, amount: int, erc20_token: str, recipient: str
     ) -> Dict[str, Any]:
-        func = self.contract.functions.payTabInERC20Token(
-            parse_u256(tab_id),
-            normalize_address(erc20_token),
-            parse_u256(amount),
-            normalize_address(recipient),
-        )
-        tx = await self._prepare_tx(func)
-        built = func.build_transaction(tx)
-        return await self._build_and_send(built)
+        try:
+            func = self.contract.functions.payTabInERC20Token(
+                parse_u256(tab_id),
+                normalize_address(erc20_token),
+                parse_u256(amount),
+                normalize_address(recipient),
+            )
+            tx = await self._prepare_tx(func)
+            built = await self._build_tx(func, tx)
+            return await self._build_and_send(built)
+        except Exception as exc:
+            raise PayTabError(str(exc)) from exc
 
     async def request_withdrawal(
         self, amount: int, erc20_token: Optional[str]
     ) -> Dict[str, Any]:
-        if erc20_token:
-            func = self.contract.functions.requestWithdrawal(
-                normalize_address(erc20_token), parse_u256(amount)
-            )
-        else:
-            func = self.contract.functions.requestWithdrawal(parse_u256(amount))
-        tx = await self._prepare_tx(func)
-        built = func.build_transaction(tx)
-        return await self._build_and_send(built)
+        try:
+            if erc20_token:
+                func = self._fn("requestWithdrawal(address,uint256)")(
+                    normalize_address(erc20_token),
+                    parse_u256(amount),
+                )
+            else:
+                func = self._fn("requestWithdrawal(uint256)")(parse_u256(amount))
+            tx = await self._prepare_tx(func)
+            built = await self._build_tx(func, tx)
+            return await self._build_and_send(built)
+        except Exception as exc:
+            raise RequestWithdrawalError(str(exc)) from exc
 
     async def cancel_withdrawal(self, erc20_token: Optional[str]) -> Dict[str, Any]:
-        if erc20_token:
-            func = self.contract.functions.cancelWithdrawal(
-                normalize_address(erc20_token)
-            )
-        else:
-            func = self.contract.functions.cancelWithdrawal()
-        tx = await self._prepare_tx(func)
-        built = func.build_transaction(tx)
-        return await self._build_and_send(built)
+        try:
+            if erc20_token:
+                func = self._fn("cancelWithdrawal(address)")(
+                    normalize_address(erc20_token)
+                )
+            else:
+                func = self._fn("cancelWithdrawal()")()
+            tx = await self._prepare_tx(func)
+            built = await self._build_tx(func, tx)
+            return await self._build_and_send(built)
+        except Exception as exc:
+            raise CancelWithdrawalError(str(exc)) from exc
 
     async def finalize_withdrawal(self, erc20_token: Optional[str]) -> Dict[str, Any]:
-        if erc20_token:
-            func = self.contract.functions.finalizeWithdrawal(
-                normalize_address(erc20_token)
-            )
-        else:
-            func = self.contract.functions.finalizeWithdrawal()
-        tx = await self._prepare_tx(func)
-        built = func.build_transaction(tx)
-        return await self._build_and_send(built)
+        try:
+            if erc20_token:
+                func = self._fn("finalizeWithdrawal(address)")(
+                    normalize_address(erc20_token)
+                )
+            else:
+                func = self._fn("finalizeWithdrawal()")()
+            tx = await self._prepare_tx(func)
+            built = await self._build_tx(func, tx)
+            return await self._build_and_send(built)
+        except Exception as exc:
+            raise FinalizeWithdrawalError(str(exc)) from exc
 
     async def remunerate(
         self, claims_blob: bytes, signature_words: List[bytes]
     ) -> Dict[str, Any]:
-        sig_struct = [
-            to_bytes(hexstr=word) if not isinstance(word, (bytes, bytearray)) else word
-            for word in signature_words
-        ]
-        func = self.contract.functions.remunerate(claims_blob, sig_struct)
-        tx = await self._prepare_tx(func)
-        built = func.build_transaction(tx)
-        return await self._build_and_send(built)
+        try:
+            sig_struct = [
+                to_bytes(hexstr=word)
+                if not isinstance(word, (bytes, bytearray))
+                else word
+                for word in signature_words
+            ]
+            func = self.contract.functions.remunerate(claims_blob, sig_struct)
+            try:
+                await func.call()
+            except Exception as exc:
+                raise RemunerateError(str(exc)) from exc
+            tx = await self._prepare_tx(func)
+            built = await self._build_tx(func, tx)
+            return await self._build_and_send(built)
+        except Exception as exc:
+            if isinstance(exc, RemunerateError):
+                raise
+            raise RemunerateError(str(exc)) from exc

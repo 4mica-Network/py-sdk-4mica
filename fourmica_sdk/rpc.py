@@ -16,10 +16,14 @@ def _serialize_tab_id(tab_id: int) -> str:
 class RpcProxy:
     """HTTP client for the core facilitator API."""
 
-    def __init__(self, endpoint: str, admin_api_key: Optional[str] = None) -> None:
+    def __init__(self, endpoint: str) -> None:
         base = endpoint if endpoint.endswith("/") else f"{endpoint}/"
         self._client = httpx.AsyncClient(base_url=base, timeout=20.0)
+        self._admin_api_key: Optional[str] = None
+
+    def with_admin_api_key(self, admin_api_key: str) -> "RpcProxy":
         self._admin_api_key = admin_api_key
+        return self
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -30,9 +34,9 @@ class RpcProxy:
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.aclose()
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self, admin: bool = False) -> Dict[str, str]:
         headers: Dict[str, str] = {}
-        if self._admin_api_key:
+        if admin and self._admin_api_key:
             headers[ADMIN_API_KEY_HEADER] = self._admin_api_key
         return headers
 
@@ -53,14 +57,16 @@ class RpcProxy:
             message = payload.get("error") or payload.get("message") or str(payload)
         elif isinstance(payload, str) and payload.strip():
             message = payload.strip()
-        raise RpcError(f"{response.status_code}: {message}")
+        raise RpcError(
+            f"{response.status_code}: {message}", status_code=response.status_code
+        )
 
-    async def _get(self, path: str) -> Any:
-        resp = await self._client.get(path, headers=self._headers())
+    async def _get(self, path: str, admin: bool = False) -> Any:
+        resp = await self._client.get(path, headers=self._headers(admin))
         return await self._decode(resp)
 
-    async def _post(self, path: str, body: Any) -> Any:
-        resp = await self._client.post(path, json=body, headers=self._headers())
+    async def _post(self, path: str, body: Any, admin: bool = False) -> Any:
+        resp = await self._client.post(path, json=body, headers=self._headers(admin))
         return await self._decode(resp)
 
     async def get_public_params(self) -> CorePublicParameters:
@@ -91,7 +97,9 @@ class RpcProxy:
     ) -> List[Dict[str, Any]]:
         query = ""
         if settlement_statuses:
-            query = "".join([f"&settlementStatus={s}" for s in settlement_statuses])
+            query = "".join(
+                [f"&settlement_status={s}" for s in settlement_statuses]
+            )
             query = f"?{query.lstrip('&')}"
         return await self._get(f"/core/recipients/{recipient_address}/tabs{query}")
 
@@ -127,13 +135,17 @@ class RpcProxy:
         self, user_address: str, suspended: bool
     ) -> Dict[str, Any]:
         body = {"suspended": suspended}
-        return await self._post(f"/core/users/{user_address}/suspension", body)
+        return await self._post(
+            f"/core/users/{user_address}/suspension", body, admin=True
+        )
 
     async def create_admin_api_key(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        return await self._post("/core/admin/api-keys", body)
+        return await self._post("/core/admin/api-keys", body, admin=True)
 
     async def list_admin_api_keys(self) -> List[Dict[str, Any]]:
-        return await self._get("/core/admin/api-keys")
+        return await self._get("/core/admin/api-keys", admin=True)
 
     async def revoke_admin_api_key(self, key_id: str) -> Dict[str, Any]:
-        return await self._post(f"/core/admin/api-keys/{key_id}/revoke", {})
+        return await self._post(
+            f"/core/admin/api-keys/{key_id}/revoke", {}, admin=True
+        )

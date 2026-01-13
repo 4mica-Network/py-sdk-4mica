@@ -19,7 +19,6 @@ class Config:
     wallet_private_key: str
     ethereum_http_rpc_url: Optional[str] = None
     contract_address: Optional[str] = None
-    admin_api_key: Optional[str] = None
 
 
 class ConfigBuilder:
@@ -28,7 +27,6 @@ class ConfigBuilder:
         self._wallet_private_key: Optional[str] = None
         self._ethereum_http_rpc_url: Optional[str] = None
         self._contract_address: Optional[str] = None
-        self._admin_api_key: Optional[str] = None
 
     def rpc_url(self, value: str) -> "ConfigBuilder":
         self._rpc_url = value
@@ -46,10 +44,6 @@ class ConfigBuilder:
         self._contract_address = value
         return self
 
-    def admin_api_key(self, value: str) -> "ConfigBuilder":
-        self._admin_api_key = value
-        return self
-
     def from_env(self) -> "ConfigBuilder":
         env = os.environ
         if "4MICA_RPC_URL" in env:
@@ -60,8 +54,6 @@ class ConfigBuilder:
             self._ethereum_http_rpc_url = env["4MICA_ETHEREUM_HTTP_RPC_URL"]
         if "4MICA_CONTRACT_ADDRESS" in env:
             self._contract_address = env["4MICA_CONTRACT_ADDRESS"]
-        if "4MICA_ADMIN_API_KEY" in env:
-            self._admin_api_key = env["4MICA_ADMIN_API_KEY"]
         return self
 
     def build(self) -> Config:
@@ -91,5 +83,4 @@ class ConfigBuilder:
             wallet_private_key=wallet_private_key,
             ethereum_http_rpc_url=ethereum_http_rpc_url,
             contract_address=contract_address,
-            admin_api_key=self._admin_api_key,
         )

@@ -31,6 +31,7 @@ class PaymentGuaranteeRequestClaims:
     user_address: str
     recipient_address: str
     tab_id: int
+    req_id: int
     amount: int
     timestamp: int
     asset_address: str
@@ -41,6 +42,7 @@ class PaymentGuaranteeRequestClaims:
         user_address: str,
         recipient_address: str,
         tab_id: int,
+        req_id: int,
         amount: int,
         timestamp: int,
         erc20_token: Optional[str],
@@ -50,6 +52,7 @@ class PaymentGuaranteeRequestClaims:
             user_address=normalize_address(user_address),
             recipient_address=normalize_address(recipient_address),
             tab_id=parse_u256(tab_id),
+            req_id=parse_u256(req_id),
             amount=parse_u256(amount),
             timestamp=int(timestamp),
             asset_address=normalize_address(asset),

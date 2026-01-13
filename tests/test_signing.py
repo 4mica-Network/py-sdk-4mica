@@ -24,6 +24,7 @@ async def test_sign_request_rejects_address_mismatch():
         "0x0000000000000000000000000000000000000011",
         "0x0000000000000000000000000000000000000002",
         tab_id=1,
+        req_id=1,
         amount=5,
         timestamp=1234,
         erc20_token=None,
@@ -41,6 +42,7 @@ async def test_sign_request_eip712_produces_signature():
         account.address,
         "0x0000000000000000000000000000000000000002",
         tab_id=42,
+        req_id=7,
         amount=123,
         timestamp=999,
         erc20_token=None,
@@ -48,5 +50,6 @@ async def test_sign_request_eip712_produces_signature():
 
     signature = await signer.sign_request(build_params(), claims, SigningScheme.EIP712)
     assert signature.scheme == SigningScheme.EIP712
-    # 65-byte signature expressed as hex (130 chars).
-    assert len(signature.signature) == 130
+    # 65-byte signature expressed as 0x-prefixed hex (132 chars).
+    assert signature.signature.startswith("0x")
+    assert len(signature.signature) == 132

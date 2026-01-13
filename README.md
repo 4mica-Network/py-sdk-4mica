@@ -15,7 +15,7 @@ pip install 'sdk-4mica[bls]'
 Use the facilitator (for example `https://x402.4mica.xyz/`) to open tabs and settle signed guarantees:
 
 - Advertise `scheme = "4mica-credit"` and a supported `network` in your `402 Payment Required` responses. Embed your POST tab endpoint in `paymentRequirements.extra.tabEndpoint`, alongside `payTo` / `asset` / `maxAmountRequired`.
-- Implement the tab endpoint to accept `{ userAddress, paymentRequirements }`, call the facilitator’s `POST /tabs` with `{ userAddress, recipientAddress = payTo, erc20Token = asset, ttlSeconds? }`, and return the tab response (at least `tabId` and `userAddress`). Cache tabs per `(user, recipient, asset)` to avoid extra calls; the facilitator will also reuse them.
+- Implement the tab endpoint to accept `{ userAddress, paymentRequirements }`, call the facilitator’s `POST /tabs` with `{ userAddress, recipientAddress = payTo, erc20Token = asset, ttlSeconds? }`, and return the tab response (at least `tabId`, `userAddress`, and the latest `nextReqId`/`reqId`). Cache tabs per `(user, recipient, asset)` to avoid extra calls; the facilitator will also reuse them.
 - When a retried request arrives with `X-PAYMENT`, base64-decode it and send `{ x402Version, paymentHeader, paymentRequirements }` to `/verify` (optional preflight) and `/settle` (to obtain the certificate).
 
 ## Quick integration (clients)
@@ -82,6 +82,7 @@ async def main():
         "0xUser",
         client.recipient._recipient_address,
         tab_id,
+        0,  # req_id for the first request
         10**17,
         timestamp=int(__import__("time").time()),
         erc20_token=None,
@@ -111,10 +112,11 @@ asyncio.run(main())
       "user_address": "<0x-prefixed checksum string>",
       "recipient_address": "<0x-prefixed checksum string>",
       "tab_id": "<decimal or 0x value>",
+      "req_id": "<decimal or 0x value>",
       "amount": "<decimal or 0x value>",
       "asset_address": "<0x-prefixed checksum string>",
       "timestamp": 1716500000,
-      "version": 1
+      "version": "v1"
     },
     "signature": "<0x-prefixed wallet signature>",
     "scheme": "eip712"
@@ -147,7 +149,6 @@ Environment variables mirror the Rust SDK:
 4MICA_RPC_URL
 4MICA_ETHEREUM_HTTP_RPC_URL
 4MICA_CONTRACT_ADDRESS
-4MICA_ADMIN_API_KEY
 ```
 
 ## Notes

@@ -12,7 +12,7 @@ from .models import (
     PaymentSignature,
     SigningScheme,
 )
-from .utils import normalize_address, parse_u256
+from .utils import ValidationError, normalize_address, parse_u256, validate_url
 
 if TYPE_CHECKING:
     from .client import Client
@@ -40,9 +40,9 @@ class PaymentRequirements:
                     return raw[key]
             return default
 
-        amount = pick(["maxAmountRequired", "max_amount_required"])
-        pay_to = pick(["payTo", "pay_to"])
-        asset = pick(["asset", "assetAddress", "asset_address"])
+        amount = pick(["maxAmountRequired"])
+        pay_to = pick(["payTo"])
+        asset = pick(["asset"])
         scheme = pick(["scheme"])
         network = pick(["network"])
         if not all([amount, pay_to, asset, scheme, network]):
@@ -70,23 +70,19 @@ class PaymentRequirements:
             extra=pick(["extra"], default={}) or {},
             resource=pick(["resource"]),
             description=pick(["description"]),
-            mime_type=pick(["mimeType", "mime_type"]),
-            output_schema=pick(["outputSchema", "output_schema"]),
-            max_timeout_seconds=pick(["maxTimeoutSeconds", "max_timeout_seconds"]),
+            mime_type=pick(["mimeType"]),
+            output_schema=pick(["outputSchema"]),
+            max_timeout_seconds=pick(["maxTimeoutSeconds"]),
         )
 
     def to_payload(self) -> Dict[str, Any]:
-        extra_payload = dict(self.extra or {})
-        if "tab_endpoint" in extra_payload and "tabEndpoint" not in extra_payload:
-            extra_payload["tabEndpoint"] = extra_payload.pop("tab_endpoint")
-
         payload = {
             "scheme": self.scheme,
             "network": self.network,
             "maxAmountRequired": self.max_amount_required,
             "payTo": self.pay_to,
             "asset": self.asset,
-            "extra": extra_payload,
+            "extra": dict(self.extra or {}),
         }
         if self.resource is not None:
             payload["resource"] = self.resource
@@ -108,13 +104,23 @@ class PaymentRequirementsExtra:
     @classmethod
     def from_raw(cls, raw: Dict[str, Any]) -> "PaymentRequirementsExtra":
         raw = raw or {}
-        return cls(tab_endpoint=raw.get("tabEndpoint") or raw.get("tab_endpoint"))
+        if not isinstance(raw, dict):
+            raise X402Error("invalid paymentRequirements.extra")
+        tab_endpoint = raw.get("tabEndpoint")
+        if tab_endpoint is None:
+            return cls(tab_endpoint=None)
+        try:
+            tab_endpoint = validate_url(str(tab_endpoint))
+        except ValidationError as exc:
+            raise X402Error(f"invalid tabEndpoint: {exc}") from exc
+        return cls(tab_endpoint=tab_endpoint)
 
 
 @dataclass
 class TabResponse:
     tab_id: str
     user_address: str
+    next_req_id: Optional[str] = None
 
 
 @dataclass
@@ -169,7 +175,10 @@ class X402Flow:
         self._validate_scheme(payment_requirements.scheme)
         tab = await self._request_tab(payment_requirements, user_address)
         claims = self._build_claims(payment_requirements, tab, user_address)
-        signature = await self.signer.sign_payment(claims, SigningScheme.EIP712)
+        try:
+            signature = await self.signer.sign_payment(claims, SigningScheme.EIP712)
+        except Exception as exc:
+            raise X402Error(f"failed to sign payment: {exc}") from exc
 
         envelope = self._build_envelope(payment_requirements, claims, signature)
         payload = envelope.to_payload()
@@ -186,21 +195,34 @@ class X402Flow:
         payment_requirements: PaymentRequirements,
         facilitator_url: str,
     ) -> X402SettledPayment:
-        url = facilitator_url.rstrip("/") + "/settle"
-        response = await self.http.post(
-            url,
-            json={
-                "x402Version": 1,
-                "paymentHeader": payment.header,
-                "paymentRequirements": payment_requirements.to_payload(),
-            },
-        )
-        data = await response.aread()
+        from urllib.parse import urljoin
+
+        try:
+            base_url = validate_url(facilitator_url)
+        except ValidationError as exc:
+            raise X402Error(f"invalid facilitator url: {exc}") from exc
+        url = urljoin(base_url, "settle")
+        try:
+            response = await self.http.post(
+                url,
+                json={
+                    "x402Version": 1,
+                    "paymentHeader": payment.header,
+                    "paymentRequirements": payment_requirements.to_payload(),
+                },
+            )
+        except httpx.HTTPError as exc:
+            raise X402Error(str(exc)) from exc
+        try:
+            settlement = response.json()
+        except Exception as exc:
+            raise X402Error(
+                f"settlement response invalid JSON: {exc}"
+            ) from exc
         if not response.is_success:
             raise X402Error(
-                f"settlement failed with status {response.status_code}: {data.decode()}"
+                f"settlement failed with status {response.status_code}: {settlement}"
             )
-        settlement = response.json()
         return X402SettledPayment(payment=payment, settlement=settlement)
 
     async def _request_tab(
@@ -213,41 +235,60 @@ class X402Flow:
             "userAddress": user_address,
             "paymentRequirements": payment_requirements.to_payload(),
         }
-        response = await self.http.post(extra.tab_endpoint, json=payload)
-        if not response.is_success:
-            raise X402Error(
-                f"tab resolution failed: {response.status_code} {response.text}"
-            )
-        body = response.json()
+        try:
+            response = await self.http.post(extra.tab_endpoint, json=payload)
+        except httpx.HTTPError as exc:
+            raise X402Error(str(exc)) from exc
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise X402Error(str(exc)) from exc
+        try:
+            body = response.json()
+        except Exception as exc:
+            raise X402Error(f"tab response invalid JSON: {exc}") from exc
         return TabResponse(
-            tab_id=body.get("tabId") or body.get("tab_id"),
-            user_address=body.get("userAddress") or body.get("user_address"),
+            tab_id=body.get("tabId"),
+            user_address=body.get("userAddress"),
+            next_req_id=body.get("nextReqId") or body.get("reqId"),
         )
 
     def _build_claims(
         self, requirements: PaymentRequirements, tab: TabResponse, user_address: str
     ) -> PaymentGuaranteeRequestClaims:
-        tab_id = parse_u256(tab.tab_id)
-        amount = parse_u256(requirements.max_amount_required)
+        tab_id = self._parse_u256(tab.tab_id)
+        req_id = self._parse_u256(tab.next_req_id) if tab.next_req_id else 0
+        amount = self._parse_u256(requirements.max_amount_required)
         if tab.user_address.lower() != user_address.lower():
             raise X402Error(
                 f"user mismatch in paymentRequirements: found {tab.user_address}, expected {user_address}"
             )
         import time
 
-        return PaymentGuaranteeRequestClaims.new(
-            user_address,
-            normalize_address(requirements.pay_to),
-            tab_id,
-            amount,
-            int(time.time()),
-            requirements.asset,
-        )
+        try:
+            return PaymentGuaranteeRequestClaims.new(
+                user_address,
+                normalize_address(requirements.pay_to),
+                tab_id,
+                req_id,
+                amount,
+                int(time.time()),
+                requirements.asset,
+            )
+        except ValidationError as exc:
+            raise X402Error(str(exc)) from exc
 
     @staticmethod
     def _validate_scheme(scheme: str) -> None:
         if "4mica" not in scheme.lower():
             raise X402Error(f"invalid scheme: {scheme}")
+
+    @staticmethod
+    def _parse_u256(raw: Optional[str]) -> int:
+        try:
+            return parse_u256(raw or "0")
+        except ValidationError as exc:
+            raise X402Error(f"invalid number for field {raw}: {exc}") from exc
 
     @staticmethod
     def _build_envelope(
@@ -261,6 +302,7 @@ class X402Flow:
                 "user_address": claims.user_address,
                 "recipient_address": claims.recipient_address,
                 "tab_id": hex(int(claims.tab_id)),
+                "req_id": hex(int(claims.req_id)),
                 "amount": hex(int(claims.amount)),
                 "asset_address": claims.asset_address,
                 "timestamp": int(claims.timestamp),

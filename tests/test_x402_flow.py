@@ -23,7 +23,7 @@ class StubX402Flow(X402Flow):
     async def _request_tab(
         self, payment_requirements: PaymentRequirements, user_address: str
     ) -> TabResponse:
-        return TabResponse(tab_id="2", user_address=user_address)
+        return TabResponse(tab_id="2", user_address=user_address, next_req_id="0x1")
 
 
 @pytest.mark.asyncio
@@ -63,8 +63,10 @@ async def test_sign_payment_builds_header_and_payload():
     assert envelope["x402Version"] == 1
     assert envelope["scheme"] == "4mica+pay"
     assert envelope["payload"]["claims"]["tab_id"] == hex(2)
+    assert envelope["payload"]["claims"]["req_id"] == hex(1)
     assert signed.claims.tab_id == 2
     assert signed.claims.amount == 5
+    assert signed.claims.req_id == 1
 
 
 def test_payment_requirements_from_raw_handles_casing_and_required_fields():
@@ -99,7 +101,8 @@ def test_build_claims_rejects_user_mismatch():
         extra={"tabEndpoint": "https://example.com"},
     )
     tab = TabResponse(
-        tab_id="3", user_address="0x00000000000000000000000000000000000000aa"
+        tab_id="3",
+        user_address="0x00000000000000000000000000000000000000aa",
     )
     with pytest.raises(X402Error):
         flow._build_claims(
@@ -132,7 +135,12 @@ async def test_x402_flow_settles_payment_through_facilitator():
             body = json.loads(request.content.decode())
             assert body["userAddress"] == user_address
             return httpx.Response(
-                200, json={"tabId": "0x1234", "userAddress": user_address}
+                200,
+                json={
+                    "tabId": "0x1234",
+                    "userAddress": user_address,
+                    "nextReqId": "0x1",
+                },
             )
         if request.url.path == "/settle":
             payload = json.loads(request.content.decode())

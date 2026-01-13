@@ -26,6 +26,7 @@ def _build_typed_message(
                 {"name": "user", "type": "address"},
                 {"name": "recipient", "type": "address"},
                 {"name": "tabId", "type": "uint256"},
+                {"name": "reqId", "type": "uint256"},
                 {"name": "amount", "type": "uint256"},
                 {"name": "asset", "type": "address"},
                 {"name": "timestamp", "type": "uint64"},
@@ -41,6 +42,7 @@ def _build_typed_message(
             "user": claims.user_address,
             "recipient": claims.recipient_address,
             "tabId": int(claims.tab_id),
+            "reqId": int(claims.req_id),
             "amount": int(claims.amount),
             "asset": claims.asset_address,
             "timestamp": int(claims.timestamp),
@@ -50,11 +52,12 @@ def _build_typed_message(
 
 def _encode_eip191(claims: PaymentGuaranteeRequestClaims) -> bytes:
     payload = abi_encode(
-        ["address", "address", "uint256", "uint256", "address", "uint64"],
+        ["address", "address", "uint256", "uint256", "uint256", "address", "uint64"],
         [
             claims.user_address,
             claims.recipient_address,
             int(claims.tab_id),
+            int(claims.req_id),
             int(claims.amount),
             claims.asset_address,
             int(claims.timestamp),
@@ -84,27 +87,24 @@ class CorePublicParameters:
 
     @classmethod
     def from_rpc(cls, payload: dict) -> "CorePublicParameters":
-        pk = (
-            payload.get("public_key")
-            if "public_key" in payload
-            else payload.get("publicKey")
-        )
+        def require(key: str):
+            if key not in payload or payload[key] is None:
+                raise ValueError(f"missing core public parameter: {key}")
+            return payload[key]
+
+        pk = require("public_key")
         if isinstance(pk, str):
             pk_bytes = bytes.fromhex(pk.removeprefix("0x"))
         else:
-            pk_bytes = bytes(pk or [])
+            pk_bytes = bytes(pk)
 
         return cls(
             public_key=pk_bytes,
-            contract_address=payload.get("contract_address")
-            or payload.get("contractAddress"),
-            ethereum_http_rpc_url=payload.get("ethereum_http_rpc_url")
-            or payload.get("ethereumHttpRpcUrl"),
-            eip712_name=payload.get("eip712_name", payload.get("eip712Name", "4Mica")),
-            eip712_version=payload.get(
-                "eip712_version", payload.get("eip712Version", "1")
-            ),
-            chain_id=int(payload.get("chain_id") or payload.get("chainId")),
+            contract_address=require("contract_address"),
+            ethereum_http_rpc_url=require("ethereum_http_rpc_url"),
+            eip712_name=require("eip712_name"),
+            eip712_version=require("eip712_version"),
+            chain_id=int(require("chain_id")),
         )
 
 
@@ -154,4 +154,7 @@ class PaymentSigner:
         except (ValueError, ValidationError) as exc:
             raise SigningError(str(exc)) from exc
 
-        return PaymentSignature(signature=signed.signature.hex(), scheme=scheme)
+        signature = signed.signature.hex()
+        if not signature.startswith("0x"):
+            signature = "0x" + signature
+        return PaymentSignature(signature=signature, scheme=scheme)

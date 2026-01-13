@@ -30,6 +30,9 @@ def test_encode_decode_guarantee_round_trip():
 
 
 def test_verify_guarantee_rejects_domain_mismatch():
+    pytest.importorskip("py_ecc")
+    from py_ecc.bls import G2Basic
+
     good_domain = b"\x01" * 32
     wrong_domain = b"\x02" * 32
     claims = PaymentGuaranteeClaims(
@@ -44,9 +47,13 @@ def test_verify_guarantee_rejects_domain_mismatch():
         timestamp=1234,
         version=1,
     )
+    claims_bytes = encode_guarantee_claims(claims)
+    sk = 1
+    pk = G2Basic.SkToPk(sk)
+    signature = G2Basic.Sign(sk, claims_bytes)
     cert = BLSCert(
-        claims="0x" + encode_guarantee_claims(claims).hex(),
-        signature="0x" + "aa" * 96,
+        claims="0x" + claims_bytes.hex(),
+        signature="0x" + signature.hex(),
     )
 
     fake_client = SimpleNamespace(
@@ -57,8 +64,9 @@ def test_verify_guarantee_rejects_domain_mismatch():
             )
         ),
         rpc=None,
+        params=SimpleNamespace(public_key=pk),
     )
     recipient = RecipientClient(fake_client)  # type: ignore[arg-type]
 
-    with pytest.raises(VerificationError):
+    with pytest.raises(VerificationError, match="guarantee domain mismatch"):
         recipient.verify_payment_guarantee(cert)
