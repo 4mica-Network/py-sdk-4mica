@@ -286,9 +286,7 @@ class RecipientClient:
 
         public_key = getattr(self.client, "params", None)
         if public_key is None or not hasattr(public_key, "public_key"):
-            raise VerifyGuaranteeError(
-                "missing operator public key for verification"
-            )
+            raise VerifyGuaranteeError("missing operator public key for verification")
         operator_public_key = bytes(public_key.public_key)
 
         if not verify_bls_signature(operator_public_key, claims_bytes, cert.signature):

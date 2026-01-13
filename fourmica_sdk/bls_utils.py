@@ -51,9 +51,7 @@ def signature_to_words(signature_hex: str) -> List[bytes]:
     return words
 
 
-def verify_bls_signature(
-    public_key: bytes, message: bytes, signature_hex: str
-) -> bool:
+def verify_bls_signature(public_key: bytes, message: bytes, signature_hex: str) -> bool:
     """Verify a BLS signature against the provided public key and message."""
     if len(public_key) != 48:
         raise VerificationError(

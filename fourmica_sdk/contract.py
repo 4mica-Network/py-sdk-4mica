@@ -135,9 +135,7 @@ class ContractGateway:
     async def approve_erc20(self, token_address: str, amount: int) -> Dict[str, Any]:
         try:
             contract = self._erc20(token_address)
-            func = contract.functions.approve(
-                self.contract_address, parse_u256(amount)
-            )
+            func = contract.functions.approve(self.contract_address, parse_u256(amount))
             tx = await self._prepare_tx(func)
             built = await self._build_tx(func, tx)
             return await self._build_and_send(built)
@@ -206,9 +204,7 @@ class ContractGateway:
                 "from": self.account.address,
                 "value": parse_u256(amount),
                 "data": data,
-                "nonce": await self.w3.eth.get_transaction_count(
-                    self.account.address
-                ),
+                "nonce": await self.w3.eth.get_transaction_count(self.account.address),
                 "chainId": self.chain_id,
                 "gas": 120_000,
             }

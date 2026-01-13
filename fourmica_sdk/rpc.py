@@ -97,9 +97,7 @@ class RpcProxy:
     ) -> List[Dict[str, Any]]:
         query = ""
         if settlement_statuses:
-            query = "".join(
-                [f"&settlement_status={s}" for s in settlement_statuses]
-            )
+            query = "".join([f"&settlement_status={s}" for s in settlement_statuses])
             query = f"?{query.lstrip('&')}"
         return await self._get(f"/core/recipients/{recipient_address}/tabs{query}")
 
@@ -146,6 +144,4 @@ class RpcProxy:
         return await self._get("/core/admin/api-keys", admin=True)
 
     async def revoke_admin_api_key(self, key_id: str) -> Dict[str, Any]:
-        return await self._post(
-            f"/core/admin/api-keys/{key_id}/revoke", {}, admin=True
-        )
+        return await self._post(f"/core/admin/api-keys/{key_id}/revoke", {}, admin=True)

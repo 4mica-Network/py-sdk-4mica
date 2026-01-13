@@ -216,9 +216,7 @@ class X402Flow:
         try:
             settlement = response.json()
         except Exception as exc:
-            raise X402Error(
-                f"settlement response invalid JSON: {exc}"
-            ) from exc
+            raise X402Error(f"settlement response invalid JSON: {exc}") from exc
         if not response.is_success:
             raise X402Error(
                 f"settlement failed with status {response.status_code}: {settlement}"
