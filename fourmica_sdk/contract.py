@@ -92,7 +92,12 @@ class ContractGateway:
         """Sign, broadcast, and wait for receipt."""
         try:
             signed = self.account.sign_transaction(txn)
-            tx_hash = await self.w3.eth.send_raw_transaction(signed.rawTransaction)
+            raw_tx = getattr(signed, "raw_transaction", None)
+            if raw_tx is None:
+                raw_tx = getattr(signed, "rawTransaction", None)
+            if raw_tx is None:
+                raise ContractError("SignedTransaction missing raw_transaction")
+            tx_hash = await self.w3.eth.send_raw_transaction(raw_tx)
             receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash)
             return dict(receipt)
         except Exception as exc:
