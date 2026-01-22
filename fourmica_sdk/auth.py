@@ -102,9 +102,7 @@ class AuthNonceResponse:
         return cls(nonce=str(nonce), siwe=SiweTemplate.from_payload(siwe_payload))
 
 
-def build_siwe_message(
-    template: SiweTemplate, address: str, nonce: str
-) -> str:
+def build_siwe_message(template: SiweTemplate, address: str, nonce: str) -> str:
     return (
         f"{template.domain} wants you to sign in with your Ethereum account:\n"
         f"{address}\n\n"
@@ -119,7 +117,9 @@ def build_siwe_message(
 
 
 class AuthClient:
-    def __init__(self, auth_url: str, client: Optional[httpx.AsyncClient] = None) -> None:
+    def __init__(
+        self, auth_url: str, client: Optional[httpx.AsyncClient] = None
+    ) -> None:
         try:
             auth_url = validate_url(auth_url)
         except ValidationError as exc:

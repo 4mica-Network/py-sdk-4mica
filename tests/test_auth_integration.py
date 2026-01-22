@@ -10,9 +10,7 @@ pytestmark = pytest.mark.integration
 
 DEFAULT_RPC_URL = "http://127.0.0.1:3000"
 DEFAULT_AUTH_URL = "http://127.0.0.1:3000"
-DEFAULT_PAYER_KEY = (
-    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-)
+DEFAULT_PAYER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 
 def _required_env(name: str) -> str:
@@ -64,9 +62,7 @@ async def test_auth_login_allows_core_request(monkeypatch):
         assert tokens.access_token
         assert tokens.refresh_token
         user_address = Account.from_key(private_key).address
-        asset = os.getenv(
-            "ASSET_ADDRESS", "0x0000000000000000000000000000000000000000"
-        )
+        asset = os.getenv("ASSET_ADDRESS", "0x0000000000000000000000000000000000000000")
         try:
             await client.rpc.get_user_asset_balance(user_address, asset)
         except RpcError as exc:
@@ -98,9 +94,7 @@ async def test_bearer_token_allows_core_request(monkeypatch):
     client = await Client.new(cfg)
     try:
         user_address = Account.from_key(private_key).address
-        asset = os.getenv(
-            "ASSET_ADDRESS", "0x0000000000000000000000000000000000000000"
-        )
+        asset = os.getenv("ASSET_ADDRESS", "0x0000000000000000000000000000000000000000")
         try:
             await client.rpc.get_user_asset_balance(user_address, asset)
         except RpcError as exc:

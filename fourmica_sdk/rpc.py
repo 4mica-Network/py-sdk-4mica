@@ -88,7 +88,9 @@ class RpcProxy:
         return await self._decode(resp)
 
     async def _post(self, path: str, body: Any, admin: bool = False) -> Any:
-        resp = await self._client.post(path, json=body, headers=await self._headers(admin))
+        resp = await self._client.post(
+            path, json=body, headers=await self._headers(admin)
+        )
         return await self._decode(resp)
 
     async def get_public_params(self) -> CorePublicParameters:

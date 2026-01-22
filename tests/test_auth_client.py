@@ -45,8 +45,7 @@ def test_build_siwe_message_format():
     )
     message = build_siwe_message(template, "0xabc", "nonce-1")
     assert (
-        message
-        == "example.com wants you to sign in with your Ethereum account:\n"
+        message == "example.com wants you to sign in with your Ethereum account:\n"
         "0xabc\n\n"
         "Sign in\n\n"
         "URI: https://example.com\n"
