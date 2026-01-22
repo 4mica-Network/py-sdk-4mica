@@ -66,3 +66,75 @@ async def test_rpc_proxy_returns_decode_error_on_invalid_json():
             await proxy.get_public_params()
     finally:
         await proxy.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rpc_proxy_includes_bearer_token():
+    params = {
+        "public_key": [1, 2, 3],
+        "contract_address": "0x1234567890abcdef1234567890abcdef12345678",
+        "ethereum_http_rpc_url": "http://localhost:8545",
+        "eip712_name": "4mica",
+        "eip712_version": "1",
+        "chain_id": 1337,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("authorization") == "Bearer token"
+        return httpx.Response(200, json=params)
+
+    proxy = _proxy_with_transport(handler).with_bearer_token("token")
+    try:
+        await proxy.get_public_params()
+    finally:
+        await proxy.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rpc_proxy_preserves_prefixed_bearer_token():
+    params = {
+        "public_key": [1, 2, 3],
+        "contract_address": "0x1234567890abcdef1234567890abcdef12345678",
+        "ethereum_http_rpc_url": "http://localhost:8545",
+        "eip712_name": "4mica",
+        "eip712_version": "1",
+        "chain_id": 1337,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("authorization") == "Bearer token"
+        return httpx.Response(200, json=params)
+
+    proxy = _proxy_with_transport(handler).with_bearer_token("Bearer token")
+    try:
+        await proxy.get_public_params()
+    finally:
+        await proxy.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rpc_proxy_uses_token_provider():
+    params = {
+        "public_key": [1, 2, 3],
+        "contract_address": "0x1234567890abcdef1234567890abcdef12345678",
+        "ethereum_http_rpc_url": "http://localhost:8545",
+        "eip712_name": "4mica",
+        "eip712_version": "1",
+        "chain_id": 1337,
+    }
+    calls = {"count": 0}
+
+    async def provider() -> str:
+        calls["count"] += 1
+        return "dynamic"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("authorization") == "Bearer dynamic"
+        return httpx.Response(200, json=params)
+
+    proxy = _proxy_with_transport(handler).with_token_provider(provider)
+    try:
+        await proxy.get_public_params()
+        assert calls["count"] == 1
+    finally:
+        await proxy.aclose()

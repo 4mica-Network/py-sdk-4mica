@@ -1,7 +1,13 @@
 from .client import Client
-from .config import Config, ConfigBuilder
+from .config import AuthConfig, Config, ConfigBuilder
 from .errors import (
     ApproveErc20Error,
+    AuthConfigError,
+    AuthDecodeError,
+    AuthError,
+    AuthStatusError,
+    AuthTransportError,
+    AuthUrlError,
     CancelWithdrawalError,
     ClientInitializationError,
     ConfigError,
@@ -23,6 +29,7 @@ from .errors import (
     VerificationError,
     X402Error,
 )
+from .auth import AuthClient, AuthNonceResponse, AuthSession, AuthTokens, SiweTemplate
 from .models import (
     AssetBalanceInfo,
     BLSCert,
@@ -50,8 +57,15 @@ __all__ = [
     "Client",
     "Config",
     "ConfigBuilder",
+    "AuthConfig",
     "FourMicaError",
     "ConfigError",
+    "AuthError",
+    "AuthConfigError",
+    "AuthUrlError",
+    "AuthTransportError",
+    "AuthDecodeError",
+    "AuthStatusError",
     "RpcError",
     "ContractError",
     "ApproveErc20Error",
@@ -71,6 +85,11 @@ __all__ = [
     "VerifyGuaranteeError",
     "ClientInitializationError",
     "X402Error",
+    "AuthTokens",
+    "AuthNonceResponse",
+    "SiweTemplate",
+    "AuthClient",
+    "AuthSession",
     "AssetBalanceInfo",
     "BLSCert",
     "CollateralEventInfo",

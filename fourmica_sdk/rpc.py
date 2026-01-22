@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import httpx
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .errors import RpcError
 from .signing import CorePublicParameters
 
 ADMIN_API_KEY_HEADER = "x-api-key"
+AUTHORIZATION_HEADER = "authorization"
+TokenProvider = Callable[[], Awaitable[str]]
 
 
 def _serialize_tab_id(tab_id: int) -> str:
@@ -20,9 +22,19 @@ class RpcProxy:
         base = endpoint if endpoint.endswith("/") else f"{endpoint}/"
         self._client = httpx.AsyncClient(base_url=base, timeout=20.0)
         self._admin_api_key: Optional[str] = None
+        self._bearer_token: Optional[str] = None
+        self._token_provider: Optional[TokenProvider] = None
 
     def with_admin_api_key(self, admin_api_key: str) -> "RpcProxy":
         self._admin_api_key = admin_api_key
+        return self
+
+    def with_bearer_token(self, bearer_token: str) -> "RpcProxy":
+        self._bearer_token = bearer_token
+        return self
+
+    def with_token_provider(self, provider: TokenProvider) -> "RpcProxy":
+        self._token_provider = provider
         return self
 
     async def aclose(self) -> None:
@@ -34,10 +46,20 @@ class RpcProxy:
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.aclose()
 
-    def _headers(self, admin: bool = False) -> Dict[str, str]:
+    async def _headers(self, admin: bool = False) -> Dict[str, str]:
         headers: Dict[str, str] = {}
         if admin and self._admin_api_key:
             headers[ADMIN_API_KEY_HEADER] = self._admin_api_key
+        token: Optional[str] = None
+        if self._token_provider is not None:
+            token = await self._token_provider()
+        elif self._bearer_token:
+            token = self._bearer_token
+        if token:
+            if token.lower().startswith("bearer "):
+                headers[AUTHORIZATION_HEADER] = token
+            else:
+                headers[AUTHORIZATION_HEADER] = f"Bearer {token}"
         return headers
 
     async def _decode(self, response: httpx.Response) -> Any:
@@ -62,11 +84,11 @@ class RpcProxy:
         )
 
     async def _get(self, path: str, admin: bool = False) -> Any:
-        resp = await self._client.get(path, headers=self._headers(admin))
+        resp = await self._client.get(path, headers=await self._headers(admin))
         return await self._decode(resp)
 
     async def _post(self, path: str, body: Any, admin: bool = False) -> Any:
-        resp = await self._client.post(path, json=body, headers=self._headers(admin))
+        resp = await self._client.post(path, json=body, headers=await self._headers(admin))
         return await self._decode(resp)
 
     async def get_public_params(self) -> CorePublicParameters:

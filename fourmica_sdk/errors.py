@@ -17,6 +17,34 @@ class RpcError(FourMicaError):
         self.status_code = status_code
 
 
+class AuthError(FourMicaError):
+    """Raised when authentication flows fail."""
+
+
+class AuthConfigError(AuthError):
+    """Raised when auth configuration is missing or invalid."""
+
+
+class AuthUrlError(AuthError):
+    """Raised when an auth URL is invalid."""
+
+
+class AuthTransportError(AuthError):
+    """Raised when auth requests fail to reach the server."""
+
+
+class AuthDecodeError(AuthError):
+    """Raised when auth responses cannot be decoded."""
+
+
+class AuthStatusError(AuthError):
+    """Raised when auth endpoints return a non-success status."""
+
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class ClientInitializationError(FourMicaError):
     """Raised when the client cannot be initialized (chain mismatch, bad keys, etc.)."""
 

@@ -88,6 +88,22 @@ class ContractGateway:
             return getter(signature)
         return self.contract.functions[signature]
 
+    async def aclose(self) -> None:
+        provider = getattr(self.w3, "provider", None)
+        if provider is None:
+            return
+        disconnect = getattr(provider, "disconnect", None)
+        if callable(disconnect):
+            result = disconnect()
+            if hasattr(result, "__await__"):
+                await result
+            return
+        close = getattr(provider, "aclose", None) or getattr(provider, "close", None)
+        if callable(close):
+            result = close()
+            if hasattr(result, "__await__"):
+                await result
+
     async def _build_and_send(self, txn: Dict[str, Any]) -> Dict[str, Any]:
         """Sign, broadcast, and wait for receipt."""
         try:

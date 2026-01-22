@@ -37,4 +37,4 @@ jobs:
         run: ruff check fourmica_sdk tests
 
       - name: Tests
-        run: pytest -q
+        run: pytest -q -m "not integration"

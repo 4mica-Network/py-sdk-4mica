@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import List, Optional, Type
 
+from .auth import AuthClient, AuthSession, AuthTokens
 from .bls_utils import signature_to_words, verify_bls_signature
 from .config import Config
 from .contract import ContractGateway
 from .errors import (
+    AuthConfigError,
     ClientInitializationError,
     CreateTabError,
     IssuePaymentGuaranteeError,
@@ -62,6 +64,7 @@ class Client:
         gateway: ContractGateway,
         guarantee_domain: bytes,
         signer: PaymentSigner,
+        auth_session: Optional[AuthSession] = None,
     ) -> None:
         self.cfg = cfg
         self.rpc = rpc
@@ -69,19 +72,40 @@ class Client:
         self.gateway = gateway
         self.guarantee_domain = guarantee_domain
         self._signer = signer
+        self._auth_session = auth_session
         self.user = UserClient(self)
         self.recipient = RecipientClient(self)
 
     @classmethod
     async def new(cls, cfg: Config) -> "Client":
         rpc = RpcProxy(cfg.rpc_url)
+        auth_session = None
+        if cfg.bearer_token:
+            rpc.with_bearer_token(cfg.bearer_token)
+        elif cfg.auth is not None:
+            auth_client = AuthClient(cfg.auth.auth_url)
+            auth_session = AuthSession(
+                auth_client,
+                cfg.wallet_private_key,
+                refresh_margin_secs=cfg.auth.refresh_margin_secs,
+            )
         params = await rpc.get_public_params()
+        if auth_session is not None:
+            rpc.with_token_provider(auth_session.access_token)
         cls._validate_operator_public_key(params.public_key)
         gateway = cls._build_gateway(cfg, params)
         await cls._validate_chain_id(gateway, params.chain_id)
         guarantee_domain = await cls._fetch_guarantee_domain(gateway)
         signer = PaymentSigner(cfg.wallet_private_key)
-        return cls(cfg, rpc, params, gateway, guarantee_domain, signer)
+        return cls(
+            cfg,
+            rpc,
+            params,
+            gateway,
+            guarantee_domain,
+            signer,
+            auth_session=auth_session,
+        )
 
     @staticmethod
     def _build_gateway(cfg: Config, params: CorePublicParameters) -> ContractGateway:
@@ -126,6 +150,14 @@ class Client:
 
     async def aclose(self) -> None:
         await self.rpc.aclose()
+        if self._auth_session is not None:
+            await self._auth_session.aclose()
+        await self.gateway.aclose()
+
+    async def login(self) -> AuthTokens:
+        if self._auth_session is None:
+            raise AuthConfigError("auth is not enabled for this client")
+        return await self._auth_session.login()
 
     async def __aenter__(self) -> "Client":
         return self
