@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any, Protocol, Union
 
 from eth_abi import encode as abi_encode
 from eth_account import Account
@@ -108,11 +109,66 @@ class CorePublicParameters:
         )
 
 
+class EvmSigner(Protocol):
+    """Signer interface for EVM-compatible accounts."""
+
+    @property
+    def address(self) -> str:
+        ...
+
+    async def sign_typed_data(self, full_message: dict) -> Union[str, bytes]:
+        ...
+
+    async def sign_message(self, message: Union[str, bytes]) -> Union[str, bytes]:
+        ...
+
+
+class LocalAccountSigner:
+    """Default signer backed by an eth_account.Account."""
+
+    def __init__(self, private_key: str) -> None:
+        try:
+            self._account = Account.from_key(private_key)
+        except Exception as exc:
+            raise SigningError(f"invalid wallet private key: {exc}") from exc
+
+    @property
+    def address(self) -> str:
+        return self._account.address
+
+    async def sign_typed_data(self, full_message: dict) -> str:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self._sign_typed_data_sync(full_message)
+        )
+
+    async def sign_message(self, message: Union[str, bytes]) -> str:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self._sign_message_sync(message)
+        )
+
+    def _sign_typed_data_sync(self, full_message: dict) -> str:
+        message = encode_typed_data(full_message=full_message)
+        signed = self._account.sign_message(message)
+        return signed.signature.hex()
+
+    def _sign_message_sync(self, message: Union[str, bytes]) -> str:
+        if isinstance(message, str):
+            message = message.encode()
+        signed = self._account.sign_message(encode_defunct(primitive=message))
+        return signed.signature.hex()
+
+
 class PaymentSigner:
     """Signs payment guarantee requests using EIP-712 or EIP-191."""
 
-    def __init__(self, private_key: str) -> None:
-        self.account = Account.from_key(private_key)
+    def __init__(self, signer: Union[EvmSigner, str]) -> None:
+        self._signer: EvmSigner
+        if isinstance(signer, str):
+            self._signer = LocalAccountSigner(signer)
+        else:
+            self._signer = signer
 
     async def sign_request(
         self,
@@ -120,41 +176,35 @@ class PaymentSigner:
         claims: PaymentGuaranteeRequestClaims,
         scheme: SigningScheme = SigningScheme.EIP712,
     ) -> PaymentSignature:
-        if normalize_address(self.account.address) != normalize_address(
+        if normalize_address(self._signer.address) != normalize_address(
             claims.user_address
         ):
             raise SigningError(
-                f"address mismatch: signer {self.account.address} "
+                f"address mismatch: signer {self._signer.address} "
                 f"!= claims.user_address {claims.user_address}"
             )
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, lambda: self._sign_sync(params, claims, scheme)
-        )
-
-    def _sign_sync(
-        self,
-        params: CorePublicParameters,
-        claims: PaymentGuaranteeRequestClaims,
-        scheme: SigningScheme,
-    ) -> PaymentSignature:
         try:
             if scheme == SigningScheme.EIP712:
-                message = encode_typed_data(
-                    full_message=_build_typed_message(params, claims)
-                )
-                signed = self.account.sign_message(message)
+                full_message = _build_typed_message(params, claims)
+                signature = await self._signer.sign_typed_data(full_message)
             elif scheme == SigningScheme.EIP191:
                 payload = _encode_eip191(claims)
-                message = encode_defunct(primitive=payload)
-                signed = self.account.sign_message(message)
+                signature = await self._signer.sign_message(payload)
             else:
                 raise SigningError(f"unsupported signing scheme: {scheme}")
         except (ValueError, ValidationError) as exc:
             raise SigningError(str(exc)) from exc
 
-        signature = signed.signature.hex()
-        if not signature.startswith("0x"):
-            signature = "0x" + signature
-        return PaymentSignature(signature=signature, scheme=scheme)
+        signature_hex = _normalize_signature(signature)
+        return PaymentSignature(signature=signature_hex, scheme=scheme)
+
+
+def _normalize_signature(signature: Union[str, bytes]) -> str:
+    if isinstance(signature, bytes):
+        sig = signature.hex()
+    else:
+        sig = str(signature)
+    if not sig.startswith("0x"):
+        sig = "0x" + sig
+    return sig

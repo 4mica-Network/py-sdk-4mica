@@ -86,7 +86,8 @@ class Client:
             auth_client = AuthClient(cfg.auth.auth_url)
             auth_session = AuthSession(
                 auth_client,
-                cfg.wallet_private_key,
+                wallet_private_key=cfg.wallet_private_key,
+                evm_signer=cfg.evm_signer,
                 refresh_margin_secs=cfg.auth.refresh_margin_secs,
             )
         params = await rpc.get_public_params()
@@ -96,7 +97,10 @@ class Client:
         gateway = cls._build_gateway(cfg, params)
         await cls._validate_chain_id(gateway, params.chain_id)
         guarantee_domain = await cls._fetch_guarantee_domain(gateway)
-        signer = PaymentSigner(cfg.wallet_private_key)
+        signer_source = cfg.evm_signer or cfg.wallet_private_key
+        if signer_source is None:
+            raise ClientInitializationError("missing evm_signer or wallet_private_key")
+        signer = PaymentSigner(signer_source)
         return cls(
             cfg,
             rpc,
@@ -109,6 +113,10 @@ class Client:
 
     @staticmethod
     def _build_gateway(cfg: Config, params: CorePublicParameters) -> ContractGateway:
+        if not cfg.wallet_private_key:
+            raise ClientInitializationError(
+                "wallet_private_key is required to initialize ContractGateway"
+            )
         eth_rpc_url = cfg.ethereum_http_rpc_url or params.ethereum_http_rpc_url
         contract_address = cfg.contract_address or params.contract_address
         return ContractGateway(

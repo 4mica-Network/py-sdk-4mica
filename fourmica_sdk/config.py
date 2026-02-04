@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .signing import EvmSigner
 
 from .errors import ConfigError
 from .utils import (
@@ -22,7 +25,8 @@ class AuthConfig:
 @dataclass
 class Config:
     rpc_url: str
-    wallet_private_key: str
+    wallet_private_key: Optional[str]
+    evm_signer: Optional["EvmSigner"] = None
     ethereum_http_rpc_url: Optional[str] = None
     contract_address: Optional[str] = None
     bearer_token: Optional[str] = None
@@ -33,6 +37,7 @@ class ConfigBuilder:
     def __init__(self) -> None:
         self._rpc_url: Optional[str] = "https://api.4mica.xyz/"
         self._wallet_private_key: Optional[str] = None
+        self._evm_signer: Optional["EvmSigner"] = None
         self._ethereum_http_rpc_url: Optional[str] = None
         self._contract_address: Optional[str] = None
         self._bearer_token: Optional[str] = None
@@ -46,6 +51,10 @@ class ConfigBuilder:
 
     def wallet_private_key(self, value: str) -> "ConfigBuilder":
         self._wallet_private_key = value
+        return self
+
+    def evm_signer(self, signer: "EvmSigner") -> "ConfigBuilder":
+        self._evm_signer = signer
         return self
 
     def ethereum_http_rpc_url(self, value: str) -> "ConfigBuilder":
@@ -108,14 +117,18 @@ class ConfigBuilder:
         return margin
 
     def build(self) -> Config:
-        if not self._wallet_private_key:
-            raise ConfigError("missing wallet_private_key")
+        if not self._wallet_private_key and self._evm_signer is None:
+            raise ConfigError("missing wallet_private_key or evm_signer")
         if not self._rpc_url:
             raise ConfigError("missing rpc_url")
 
         try:
             rpc_url = validate_url(self._rpc_url)
-            wallet_private_key = normalize_private_key(self._wallet_private_key)
+            wallet_private_key = (
+                normalize_private_key(self._wallet_private_key)
+                if self._wallet_private_key
+                else None
+            )
             ethereum_http_rpc_url = (
                 validate_url(self._ethereum_http_rpc_url)
                 if self._ethereum_http_rpc_url
@@ -139,6 +152,7 @@ class ConfigBuilder:
         return Config(
             rpc_url=rpc_url,
             wallet_private_key=wallet_private_key,
+            evm_signer=self._evm_signer,
             ethereum_http_rpc_url=ethereum_http_rpc_url,
             contract_address=contract_address,
             bearer_token=self._bearer_token,

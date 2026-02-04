@@ -6,9 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import httpx
-from eth_account import Account
-from eth_account.messages import encode_defunct
-
 from .errors import (
     AuthConfigError,
     AuthDecodeError,
@@ -16,6 +13,7 @@ from .errors import (
     AuthTransportError,
     AuthUrlError,
 )
+from .signing import EvmSigner, LocalAccountSigner
 from .utils import ValidationError, validate_url
 
 
@@ -187,19 +185,20 @@ class AuthSession:
     def __init__(
         self,
         client: AuthClient,
-        wallet_private_key: str,
+        wallet_private_key: Optional[str] = None,
+        evm_signer: Optional[EvmSigner] = None,
         refresh_margin_secs: int = 60,
     ) -> None:
         if refresh_margin_secs < 0:
             raise AuthConfigError("refresh_margin_secs cannot be negative")
-        try:
-            account = Account.from_key(wallet_private_key)
-        except Exception as exc:
-            raise AuthConfigError(f"invalid wallet private key: {exc}") from exc
+        if evm_signer is None:
+            if not wallet_private_key:
+                raise AuthConfigError("wallet_private_key or evm_signer is required")
+            evm_signer = LocalAccountSigner(wallet_private_key)
 
         self._client = client
-        self._account = account
-        self._address = account.address
+        self._signer = evm_signer
+        self._address = evm_signer.address
         self._refresh_margin_secs = refresh_margin_secs
         self._tokens: Optional[AuthTokens] = None
         self._expires_at: Optional[float] = None
@@ -224,8 +223,8 @@ class AuthSession:
     async def _login_locked(self) -> AuthTokens:
         nonce = await self._client.get_nonce(self._address)
         message = build_siwe_message(nonce.siwe, self._address, nonce.nonce)
-        signed = self._account.sign_message(encode_defunct(text=message))
-        signature = signed.signature.hex()
+        signed = await self._signer.sign_message(message)
+        signature = signed.hex() if isinstance(signed, bytes) else str(signed)
         if not signature.startswith("0x"):
             signature = "0x" + signature
         tokens = await self._client.verify(self._address, message, signature)

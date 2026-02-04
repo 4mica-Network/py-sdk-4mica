@@ -417,9 +417,13 @@ Facilitators enforce that `scheme` / `network` match `/supported`, `payTo` match
 
 ## Configuration
 
-- `wallet_private_key` (**required**)
+- `wallet_private_key` (required for on-chain gateway operations)
+- `evm_signer` (optional; any signer implementing `EvmSigner` for payment/auth signing)
 - `rpc_url` (defaults to `https://api.4mica.xyz/`)
 - `ethereum_http_rpc_url` and `contract_address` are auto-fetched from the facilitator unless provided.
+
+If both `wallet_private_key` and `evm_signer` are provided, the signer is used for
+payment/auth signing and the private key is still used for gateway operations.
 
 Environment variables mirror the Rust SDK:
 

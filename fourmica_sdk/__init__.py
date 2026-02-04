@@ -45,6 +45,7 @@ from .models import (
     TabPaymentStatus,
     UserInfo,
 )
+from .signing import EvmSigner, LocalAccountSigner, PaymentSigner
 from .x402 import (
     FlowSigner,
     PaymentRequirements,
@@ -106,6 +107,9 @@ __all__ = [
     "PendingRemunerationInfo",
     "RecipientPaymentInfo",
     "SigningScheme",
+    "EvmSigner",
+    "LocalAccountSigner",
+    "PaymentSigner",
     "TabInfo",
     "TabPaymentStatus",
     "UserInfo",
