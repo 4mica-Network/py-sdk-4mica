@@ -12,6 +12,7 @@ from .errors import (
     AuthStatusError,
     AuthTransportError,
     AuthUrlError,
+    SigningError,
 )
 from .signing import EvmSigner, LocalAccountSigner
 from .utils import ValidationError, validate_url
@@ -194,7 +195,10 @@ class AuthSession:
         if evm_signer is None:
             if not wallet_private_key:
                 raise AuthConfigError("wallet_private_key or evm_signer is required")
-            evm_signer = LocalAccountSigner(wallet_private_key)
+            try:
+                evm_signer = LocalAccountSigner(wallet_private_key)
+            except SigningError as exc:
+                raise AuthConfigError(str(exc)) from exc
 
         self._client = client
         self._signer = evm_signer
