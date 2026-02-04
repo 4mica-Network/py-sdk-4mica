@@ -334,7 +334,9 @@ class X402Flow:
         user_address: str,
     ) -> X402SignedPayment:
         self._validate_scheme(accepted.scheme)
-        tab = await self._request_tab(2, accepted, user_address, payment_required.resource)
+        tab = await self._request_tab(
+            2, accepted, user_address, payment_required.resource
+        )
         claims = self._build_claims(accepted, tab, user_address)
         try:
             signature = await self.signer.sign_payment(claims, SigningScheme.EIP712)
@@ -342,7 +344,9 @@ class X402Flow:
             raise X402Error(f"failed to sign payment: {exc}") from exc
 
         payment_payload = self._build_payment_payload(claims, signature)
-        envelope = self._build_envelope_v2(accepted, payment_required.resource, payment_payload)
+        envelope = self._build_envelope_v2(
+            accepted, payment_required.resource, payment_payload
+        )
         envelope_payload = envelope.to_payload()
         envelope_payload.setdefault("x402Version", envelope.x402_version)
         header_bytes = base64.b64encode(
@@ -415,6 +419,7 @@ class X402Flow:
             body = response.json()
         except Exception as exc:
             raise X402Error(f"tab response invalid JSON: {exc}") from exc
+
         def pick(keys, default=None):
             for key in keys:
                 if key in body and body[key] is not None:
