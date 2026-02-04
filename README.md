@@ -43,6 +43,54 @@ Auth environment variables:
 - `4MICA_AUTH_URL` (defaults to `4MICA_RPC_URL`)
 - `4MICA_AUTH_REFRESH_MARGIN_SECS` (default: `60`)
 
+## Registration (users & agents): deposit collateral
+
+In 4Mica, a wallet is considered "registered" once it has deposited collateral into the
+4Mica vault. The core service watches the chain events and register users once they deposit. Any wallet that will be **debited by guarantees** (payers or agent
+wallets acting on behalf of payers) must deposit first. The deposit can be ETH or an ERC-20.
+
+Sample registration deposit:
+
+```python
+import asyncio
+import os
+
+from fourmica_sdk import Client, ConfigBuilder
+
+PRIVATE_KEY = os.environ["PRIVATE_KEY"]
+USDC_ADDRESS = os.environ.get("USDC_ADDRESS")  # optional ERC20
+
+
+async def main() -> None:
+    client = await Client.new(
+        ConfigBuilder().from_env().wallet_private_key(PRIVATE_KEY).build()
+    )
+    try:
+        # ETH deposit (registers the wallet once the event is indexed)
+        await client.user.deposit(1_000_000_000_000_000_000)  # 1 ETH
+
+        # ERC-20 deposit (approve first)
+        if USDC_ADDRESS:
+            await client.user.approve_erc20(USDC_ADDRESS, 100_000_000)  # 100 USDC (6 decimals)
+            await client.user.deposit(100_000_000, USDC_ADDRESS)
+    finally:
+        await client.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Notes:
+- Latency of registration is same as the latency of the underlying chain. 
+
+## Recipient registration (alpha)
+
+Recipients do **not** need to register in the current alpha. There is no on-chain or API
+registration step for recipient addresses. A recipient only needs a wallet key to:
+- create tabs (the SDK enforces that the signer address matches `recipient_address`), and
+- request/verify guarantees for its own address.
+
 ## Quick start (direct SDK)
 
 This direct flow talks to 4mica core and shows the four core actions: deposit, open a tab, request a guarantee, and settle (remunerate) it on-chain. The payer and recipient roles are separate in production, so the SDK uses different keys. The snippets below are copied from the runnable scripts in `examples/recipient_quickstart.py` and `examples/payer_quickstart.py`.
@@ -118,8 +166,6 @@ async def main() -> None:
         print("ASSET_ADDRESS=", asset_address)
     finally:
         await recipient_client.aclose()
-
-
 if __name__ == "__main__":
     asyncio.run(main())
 ```
@@ -283,7 +329,12 @@ pip install sdk-4mica
 
 ```python
 import asyncio
-from fourmica_sdk import Client, ConfigBuilder, PaymentRequirements, X402Flow
+from fourmica_sdk import (
+    Client,
+    ConfigBuilder,
+    PaymentRequirementsV1,
+    X402Flow,
+)
 
 payer_key = "0x..."    # wallet private key
 user_address = "0x..." # address to embed in the claims
@@ -295,7 +346,7 @@ async def main():
 
     # Fetch the recipient's paymentRequirements (must include extra.tabEndpoint)
     req_raw = fetch_requirements_somehow()[0]
-    requirements = PaymentRequirements.from_raw(req_raw)
+    requirements = PaymentRequirementsV1.from_raw(req_raw)
 
     payment = await flow.sign_payment(requirements, user_address)
     headers = {"X-PAYMENT": payment.header}  # base64 string to send with the retry
@@ -307,6 +358,23 @@ async def main():
     await client.aclose()
 
 asyncio.run(main())
+```
+
+### V2 payments
+
+To sign x402 v2 payments, build `X402PaymentRequired` and `PaymentRequirementsV2` and call `sign_payment_v2`:
+
+```python
+from fourmica_sdk import X402PaymentRequired, PaymentRequirementsV2, X402ResourceInfo
+
+accepted = PaymentRequirementsV2.from_raw(accepted_raw)
+payment_required = X402PaymentRequired(
+    x402_version=2,
+    resource=X402ResourceInfo.from_raw(resource_raw),
+    accepts=[accepted],
+)
+
+payment = await flow.sign_payment_v2(payment_required, accepted, user_address)
 ```
 
 ## X-PAYMENT header schema
