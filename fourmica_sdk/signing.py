@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Protocol, Union
+from typing import Protocol, Union
 
 from eth_abi import encode as abi_encode
 from eth_account import Account
