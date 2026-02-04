@@ -8,9 +8,12 @@ import pytest
 from fourmica_sdk.errors import X402Error
 from fourmica_sdk.models import PaymentSignature, SigningScheme
 from fourmica_sdk.x402 import (
-    PaymentRequirements,
+    PaymentRequirementsV1,
+    PaymentRequirementsV2,
     TabResponse,
     X402Flow,
+    X402PaymentRequired,
+    X402ResourceInfo,
 )
 
 
@@ -21,7 +24,11 @@ class StubSigner:
 
 class StubX402Flow(X402Flow):
     async def _request_tab(
-        self, payment_requirements: PaymentRequirements, user_address: str
+        self,
+        x402_version,
+        payment_requirements,
+        user_address: str,
+        resource=None,
     ) -> TabResponse:
         return TabResponse(tab_id="2", user_address=user_address, next_req_id="0x1")
 
@@ -29,7 +36,7 @@ class StubX402Flow(X402Flow):
 @pytest.mark.asyncio
 async def test_sign_payment_rejects_invalid_scheme():
     flow = StubX402Flow(StubSigner())
-    requirements = PaymentRequirements(
+    requirements = PaymentRequirementsV1(
         scheme="http+pay",
         network="testnet",
         max_amount_required="1",
@@ -46,7 +53,7 @@ async def test_sign_payment_rejects_invalid_scheme():
 @pytest.mark.asyncio
 async def test_sign_payment_builds_header_and_payload():
     flow = StubX402Flow(StubSigner())
-    requirements = PaymentRequirements(
+    requirements = PaymentRequirementsV1(
         scheme="4mica+pay",
         network="testnet",
         max_amount_required="5",
@@ -64,9 +71,9 @@ async def test_sign_payment_builds_header_and_payload():
     assert envelope["scheme"] == "4mica+pay"
     assert envelope["payload"]["claims"]["tab_id"] == hex(2)
     assert envelope["payload"]["claims"]["req_id"] == hex(1)
-    assert signed.claims.tab_id == 2
-    assert signed.claims.amount == 5
-    assert signed.claims.req_id == 1
+    assert signed.payload["claims"]["tab_id"] == hex(2)
+    assert signed.payload["claims"]["amount"] == hex(5)
+    assert signed.payload["claims"]["req_id"] == hex(1)
 
 
 def test_payment_requirements_from_raw_handles_casing_and_required_fields():
@@ -80,7 +87,7 @@ def test_payment_requirements_from_raw_handles_casing_and_required_fields():
         "mimeType": "application/json",
         "maxTimeoutSeconds": 300,
     }
-    req = PaymentRequirements.from_raw(raw)
+    req = PaymentRequirementsV1.from_raw(raw)
     assert req.scheme == "4mica-credit"
     assert req.network == "polygon-amoy"
     assert req.max_amount_required == "0x1"
@@ -92,7 +99,7 @@ def test_payment_requirements_from_raw_handles_casing_and_required_fields():
 
 def test_build_claims_rejects_user_mismatch():
     flow = StubX402Flow(StubSigner())
-    requirements = PaymentRequirements(
+    requirements = PaymentRequirementsV1(
         scheme="4mica+pay",
         network="testnet",
         max_amount_required="5",
@@ -120,7 +127,7 @@ async def test_x402_flow_settles_payment_through_facilitator():
     user_address = "0x0000000000000000000000000000000000000009"
     tab_endpoint = "http://facilitator.test/tab"
     facilitator_url = "http://facilitator.test"
-    requirements = PaymentRequirements(
+    requirements = PaymentRequirementsV1(
         scheme="4mica+pay",
         network="testnet",
         max_amount_required="5",
@@ -133,6 +140,7 @@ async def test_x402_flow_settles_payment_through_facilitator():
         if request.url.path == "/tab":
             assert request.method == "POST"
             body = json.loads(request.content.decode())
+            assert body["x402Version"] == 1
             assert body["userAddress"] == user_address
             return httpx.Response(
                 200,
@@ -156,11 +164,46 @@ async def test_x402_flow_settles_payment_through_facilitator():
 
     try:
         payment = await flow.sign_payment(requirements, user_address)
-        assert payment.claims.tab_id == 0x1234
+        assert payment.payload["claims"]["tab_id"] == hex(0x1234)
 
         settled = await flow.settle_payment(payment, requirements, facilitator_url)
         assert settled.settlement["settled"] is True
         assert settled.settlement["networkId"] == requirements.network
-        assert settled.payment.claims.recipient_address == requirements.pay_to
+        assert (
+            settled.payment.payload["claims"]["recipient_address"]
+            == requirements.pay_to
+        )
     finally:
         await flow.http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sign_payment_v2_builds_header_and_payload():
+    flow = StubX402Flow(StubSigner())
+    accepted = PaymentRequirementsV2(
+        scheme="4mica+pay",
+        network="testnet",
+        amount="5",
+        pay_to="0x0000000000000000000000000000000000000003",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={"tabEndpoint": "https://example.com"},
+    )
+    payment_required = X402PaymentRequired(
+        x402_version=2,
+        resource=X402ResourceInfo(
+            url="https://example.com/data",
+            description="example",
+            mime_type="application/json",
+        ),
+        accepts=[accepted],
+    )
+    user_address = "0x0000000000000000000000000000000000000001"
+    signed = await flow.sign_payment_v2(payment_required, accepted, user_address)
+
+    decoded_header = base64.b64decode(signed.header).decode()
+    envelope = json.loads(decoded_header)
+
+    assert envelope["x402Version"] == 2
+    assert envelope["accepted"]["amount"] == "5"
+    assert envelope["resource"]["mimeType"] == "application/json"
+    assert signed.payload["claims"]["tab_id"] == hex(2)

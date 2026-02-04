@@ -48,7 +48,13 @@ from .models import (
 from .x402 import (
     FlowSigner,
     PaymentRequirements,
+    PaymentRequirementsV1,
+    PaymentRequirementsV2,
+    X402PaymentEnvelopeV1,
+    X402PaymentEnvelopeV2,
     X402Flow,
+    X402PaymentRequired,
+    X402ResourceInfo,
     X402SettledPayment,
     X402SignedPayment,
 )
@@ -105,7 +111,13 @@ __all__ = [
     "UserInfo",
     "FlowSigner",
     "PaymentRequirements",
+    "PaymentRequirementsV1",
+    "PaymentRequirementsV2",
+    "X402PaymentEnvelopeV1",
+    "X402PaymentEnvelopeV2",
     "X402Flow",
+    "X402PaymentRequired",
+    "X402ResourceInfo",
     "X402SignedPayment",
     "X402SettledPayment",
 ]
