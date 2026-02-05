@@ -1,78 +1,66 @@
 # 4Mica Python SDK
 
+The official Python SDK for interacting with the 4Mica payment network.
+
+## Overview
+
+This SDK provides:
+
+- **User Client**: deposit collateral, sign payments, and manage withdrawals in ETH or ERC20 tokens
+- **Recipient Client**: create payment tabs, verify payment guarantees, and claim from user collateral
+- **X402 Flow Helper**: generate X-PAYMENT headers for 402-protected HTTP resources via an X402-compatible service
+- **Admin RPCs**: manage user suspension and admin API keys (when authorized)
+
 ## Installation
+
+```bash
+pip install sdk-4mica
+```
+
+Install BLS support for on-chain remuneration:
 
 ```bash
 pip install 'sdk-4mica[bls]'
 ```
 
-## Auth (SIWE)
+Python 3.9+ is required.
 
-Core `/core/*` endpoints require bearer auth. Enable SIWE auth with your wallet key:
+## Initialization and Configuration
 
-```python
-from fourmica_sdk import Client, ConfigBuilder
+The SDK requires a signing key and can use sensible defaults for the rest:
 
-cfg = (
-    ConfigBuilder()
-    .from_env()
-    .wallet_private_key(PRIVATE_KEY)
-    .enable_auth()
-    .build()
-)
-client = await Client.new(cfg)
-await client.login()
-```
+- `wallet_private_key` (**required**): private key used for on-chain gateway operations
+- `evm_signer` (optional): custom signer implementing `EvmSigner` for payment/auth signing
+- `rpc_url` (optional): URL of the 4Mica core RPC server. Defaults to `https://api.4mica.xyz/`.
+- `ethereum_http_rpc_url` (optional): Ethereum JSON-RPC endpoint; fetched from core if omitted
+- `contract_address` (optional): Core4Mica contract address; fetched from core if omitted
+- `bearer_token` (optional): static bearer token for auth
+- `auth_url` and `auth_refresh_margin_secs` (optional): SIWE auth config. Only used when auth is
+  enabled via `enable_auth()` or when set via env (defaults to `rpc_url` and 60 seconds).
 
-If you already have a bearer token, set it directly:
+Note: `wallet_private_key` is currently required even when you supply `evm_signer`, because the
+client always initializes the on-chain gateway.
 
-```python
-cfg = (
-    ConfigBuilder()
-    .from_env()
-    .wallet_private_key(PRIVATE_KEY)
-    .bearer_token(BEARER_TOKEN)
-    .build()
-)
-client = await Client.new(cfg)
-```
-
-Auth environment variables:
-
-- `4MICA_BEARER_TOKEN`
-- `4MICA_AUTH_URL` (defaults to `4MICA_RPC_URL`)
-- `4MICA_AUTH_REFRESH_MARGIN_SECS` (default: `60`)
-
-## Registration (users & agents): deposit collateral
-
-In 4Mica, a wallet is considered "registered" once it has deposited collateral into the
-4Mica vault. The core service watches the chain events and register users once they deposit. Any wallet that will be **debited by guarantees** (payers or agent
-wallets acting on behalf of payers) must deposit first. The deposit can be ETH or an ERC-20.
-
-Sample registration deposit:
+### 1) Using ConfigBuilder
 
 ```python
 import asyncio
-import os
 
 from fourmica_sdk import Client, ConfigBuilder
 
-PRIVATE_KEY = os.environ["PRIVATE_KEY"]
-USDC_ADDRESS = os.environ.get("USDC_ADDRESS")  # optional ERC20
-
 
 async def main() -> None:
-    client = await Client.new(
-        ConfigBuilder().from_env().wallet_private_key(PRIVATE_KEY).build()
+    cfg = (
+        ConfigBuilder()
+        .rpc_url("https://api.4mica.xyz/")
+        .wallet_private_key("0x...")
+        .build()
     )
-    try:
-        # ETH deposit (registers the wallet once the event is indexed)
-        await client.user.deposit(1_000_000_000_000_000_000)  # 1 ETH
 
-        # ERC-20 deposit (approve first)
-        if USDC_ADDRESS:
-            await client.user.approve_erc20(USDC_ADDRESS, 100_000_000)  # 100 USDC (6 decimals)
-            await client.user.deposit(100_000_000, USDC_ADDRESS)
+    client = await Client.new(cfg)
+    try:
+        # use client.user, client.recipient, client.rpc
+        pass
     finally:
         await client.aclose()
 
@@ -81,19 +69,102 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Notes:
-- Latency of registration is same as the latency of the underlying chain. 
+### 2) Using Environment Variables
 
-## Recipient registration (alpha)
+Set environment variables (example `.env`):
 
-Recipients do **not** need to register in the current alpha. There is no on-chain or API
-registration step for recipient addresses. A recipient only needs a wallet key to:
-- create tabs (the SDK enforces that the signer address matches `recipient_address`), and
-- request/verify guarantees for its own address.
+```bash
+4MICA_WALLET_PRIVATE_KEY="0x..."
+4MICA_RPC_URL="https://api.4mica.xyz/"
+4MICA_ETHEREUM_HTTP_RPC_URL="http://localhost:8545"
+4MICA_CONTRACT_ADDRESS="0x..."
+4MICA_BEARER_TOKEN="Bearer <access_token>"
+4MICA_AUTH_URL="https://api.4mica.xyz/"
+4MICA_AUTH_REFRESH_MARGIN_SECS="60"
+```
 
-## Quick start (direct SDK)
+If you want to set them inline for a single command, use `env` since most shells do not allow
+variable names that start with a digit:
 
-This direct flow talks to 4mica core and shows the four core actions: deposit, open a tab, request a guarantee, and settle (remunerate) it on-chain. The payer and recipient roles are separate in production, so the SDK uses different keys. The snippets below are copied from the runnable scripts in `examples/recipient_quickstart.py` and `examples/payer_quickstart.py`.
+```bash
+env 4MICA_WALLET_PRIVATE_KEY="0x..." 4MICA_RPC_URL="https://api.4mica.xyz/" python app.py
+```
+
+Then in code:
+
+```python
+from fourmica_sdk import Client, ConfigBuilder
+
+cfg = ConfigBuilder().from_env().build()
+client = await Client.new(cfg)
+```
+
+### 3) Using a Custom Signer
+
+Provide a signer that implements `EvmSigner` (must expose `address`, `sign_typed_data`, and
+`sign_message`). The private key is still required for on-chain operations.
+
+```python
+from fourmica_sdk import Client, ConfigBuilder, LocalAccountSigner
+
+signer = LocalAccountSigner("0x...")
+cfg = ConfigBuilder().wallet_private_key("0x...").evm_signer(signer).build()
+client = await Client.new(cfg)
+```
+
+### SIWE Auth (Optional)
+
+Enable automatic SIWE auth refresh, or pass a static bearer token:
+
+```python
+from fourmica_sdk import Client, ConfigBuilder
+
+cfg = (
+    ConfigBuilder()
+    .wallet_private_key("0x...")
+    .rpc_url("https://api.4mica.xyz/")
+    .enable_auth()
+    .build()
+)
+
+client = await Client.new(cfg)
+await client.login()  # optional: first RPC call also triggers auth
+```
+
+Or use a static token:
+
+```python
+cfg = (
+    ConfigBuilder()
+    .wallet_private_key("0x...")
+    .bearer_token("Bearer <access_token>")
+    .build()
+)
+```
+
+Env vars: `4MICA_BEARER_TOKEN`, `4MICA_AUTH_URL`, `4MICA_AUTH_REFRESH_MARGIN_SECS`.
+
+## Usage
+
+The SDK exposes three main entry points:
+
+- `client.user`: payer-side operations (collateral, signing, withdrawals)
+- `client.recipient`: recipient-side operations (tabs, guarantees, remuneration)
+- `X402Flow`: helper for 402-protected HTTP resources
+
+Low-level admin RPCs are available under `client.rpc` (requires an admin API key):
+
+```python
+client.rpc.with_admin_api_key("ak_...")
+await client.rpc.update_user_suspension("0xUser", True)
+```
+
+## Direct SDK Quick Start
+
+This direct flow talks to 4mica core and shows the four core actions: deposit, open a tab, request
+a guarantee, and settle (remunerate) it on-chain. The payer and recipient roles are separate in
+production, so the SDK uses different keys. The snippets below are copied from the runnable scripts
+in `examples/recipient_quickstart.py` and `examples/payer_quickstart.py`.
 
 Key requirements:
 
@@ -103,27 +174,24 @@ Four-step direct flow:
 
 1. Deposit collateral (payer). For ETH, call `payer_client.user.deposit(amount)`. For ERC20,
    call `payer_client.user.approve_erc20(token, amount)` first, then
-   `payer_client.user.deposit(amount, token)`. ‍‍`token` is the contract address of the USDC/USDT. 
-2. Get `tab_id` and `req_id` (recipient). Call `recipient_client.recipient.create_tab(...)` which hits
-   core `/core/payment-tabs` (core may reuse an active tab). The core response includes
-   `next_req_id`; with the SDK, compute it by calling
+   `payer_client.user.deposit(amount, token)`. `token` is the contract address of the USDC/USDT.
+2. Get `tab_id` and `req_id` (recipient). Call `recipient_client.recipient.create_tab(...)` which
+   hits core `/core/payment-tabs`. The SDK returns `tab_id`; compute the next `req_id` by calling
    `latest = await recipient_client.recipient.get_latest_guarantee(tab_id)` and using
    `req_id = 0 if latest is None else latest.req_id + 1`.
 3. Sign the guarantee (payer). Build `PaymentGuaranteeRequestClaims` with `tab_id`, `req_id`,
    amount, timestamp, and asset, then call
    `signature = await payer_client.user.sign_payment(claims, SigningScheme.EIP712)`.
-4. Settle (recipient). Call `cert = await recipient_client.issue_payment_guarantee(...)` with
-   the claims + payer signature, then `await recipient_client.remunerate(cert)` to settle on
-   chain.
-
-```bash
-pip install 'sdk-4mica[bls]'
-```
+4. Settle (recipient). Call `cert = await recipient_client.recipient.issue_payment_guarantee(...)`
+   with the claims + payer signature, then `await recipient_client.recipient.remunerate(cert)` to
+   settle on chain.
 
 ### Recipient (resource server) quick start
 
-Recipient is the service provider that accepts a payer's credit. Each recipient can open a tab with a user, a configurable line of credit that enables instant, trustless fair exchange between payer and merchant.
-Run this script first to open a tab, compute the next `REQ_ID`, and print the tab's asset address plus the amount the payer should sign.
+Recipient is the service provider that accepts a payer's credit. Each recipient can open a tab
+with a user, a configurable line of credit that enables instant, trustless fair exchange between
+payer and merchant. Run this script first to open a tab, compute the next `REQ_ID`, and print the
+tab's asset address plus the amount the payer should sign.
 
 ```bash
 export RECIPIENT_KEY=0x..
@@ -166,6 +234,8 @@ async def main() -> None:
         print("ASSET_ADDRESS=", asset_address)
     finally:
         await recipient_client.aclose()
+
+
 if __name__ == "__main__":
     asyncio.run(main())
 ```
@@ -285,6 +355,131 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+## X402 Flow (HTTP 402)
+
+The X402 helper turns `paymentRequirements` from a `402 Payment Required` response into an
+X-PAYMENT header (and optional `/settle` call) that the facilitator will accept.
+
+### What the SDK expects from `paymentRequirements`
+
+At minimum you need:
+
+- `scheme` and `network` (scheme must include `4mica`, e.g. `4mica-credit`)
+- `extra.tabEndpoint` for tab resolution
+
+`X402Flow` will refresh the tab by calling `extra.tabEndpoint` before signing.
+
+### X402 Version 1
+
+Version 1 returns payment requirements in the JSON response body:
+
+```python
+import asyncio
+
+from fourmica_sdk import Client, ConfigBuilder, X402Flow
+from fourmica_sdk import PaymentRequirementsV1
+
+
+async def main() -> None:
+    cfg = ConfigBuilder().wallet_private_key("0x...").build()
+    client = await Client.new(cfg)
+    flow = X402Flow.from_client(client)
+
+    # 1) GET the protected endpoint and parse JSON body
+    res = fetch_resource_somehow()
+    requirements = PaymentRequirementsV1.from_raw(res["accepts"][0])
+
+    # 2) Build the X-PAYMENT header with the SDK
+    payment = await flow.sign_payment(requirements, "0xUser")
+
+    # 3) Call the protected resource with the header
+    headers = {"X-PAYMENT": payment.header}
+    await call_resource_somehow(headers)
+
+    await client.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### X402 Version 2
+
+Version 2 uses the `payment-required` header (base64-encoded) instead of a JSON response body:
+
+```python
+import asyncio
+import base64
+import json
+
+from fourmica_sdk import Client, ConfigBuilder, X402Flow
+from fourmica_sdk import X402PaymentRequired, PaymentRequirementsV2
+
+
+async def main() -> None:
+    cfg = ConfigBuilder().wallet_private_key("0x...").build()
+    client = await Client.new(cfg)
+    flow = X402Flow.from_client(client)
+
+    # 1) GET the protected endpoint and extract payment-required header
+    res = fetch_resource_somehow()
+    header = res.headers.get("payment-required")
+    if not header:
+        raise RuntimeError("Missing payment-required header")
+
+    # 2) Decode the header
+    decoded = base64.b64decode(header).decode("utf8")
+    payment_required = X402PaymentRequired.from_raw(json.loads(decoded))
+
+    # 3) Select a payment option
+    accepted = payment_required.accepts[0]
+
+    # 4) Build the PAYMENT-SIGNATURE header with the SDK
+    signed = await flow.sign_payment_v2(payment_required, accepted, "0xUser")
+
+    # 5) Call the protected resource with the header
+    headers = {"PAYMENT-SIGNATURE": signed.header}
+    await call_resource_somehow(headers)
+
+    await client.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Resource server / facilitator side
+
+If your resource server proxies to the facilitator, you can reuse the SDK to settle after
+verifying:
+
+```python
+from fourmica_sdk import Client, ConfigBuilder, X402Flow
+from fourmica_sdk import PaymentRequirementsV1, X402SignedPayment
+
+
+async def settle(
+    facilitator_url: str,
+    payment_requirements: PaymentRequirementsV1,
+    payment: X402SignedPayment,
+) -> None:
+    core = await Client.new(
+        ConfigBuilder().wallet_private_key("0x...").build()
+    )
+    flow = X402Flow.from_client(core)
+
+    settled = await flow.settle_payment(payment, payment_requirements, facilitator_url)
+    print("settlement result:", settled.settlement)
+
+    await core.aclose()
+```
+
+Notes:
+
+- `sign_payment` and `sign_payment_v2` always use EIP-712 signing and will error if the scheme is not 4mica.
+- `UserClient.sign_payment` supports `SigningScheme.EIP712` (default) and `SigningScheme.EIP191`.
+- `settle_payment` only hits `/settle`; resource servers should still call `/verify` first when enforcing access.
+
 ## Concepts
 
 - Tabs are per `(user, recipient, asset)` credit ledgers. Core reuses an existing tab if it is still valid; otherwise it creates a new tab id using a SHA-256 hash of user, recipient, ttl, and a random UUID (treat `tab_id` as opaque).
@@ -292,90 +487,6 @@ if __name__ == "__main__":
 - Request ids: `req_id` is per-tab and strictly sequential. The first guarantee uses `req_id = 0`; each new guarantee must be `last_req_id + 1`. The facilitator returns `nextReqId` in `/tabs`.
 - Guarantee request claims (v1) are the signed payload: `{ user_address, recipient_address, tab_id, req_id, amount, asset_address, timestamp }`. `asset_address` is the zero address for ETH if omitted. `timestamp` is seconds since epoch and is validated by core.
 - Guarantee certificates are BLS signatures over `PaymentGuaranteeClaims` (core adds `domain`, `total_amount` which is the running sum for the tab, and `version`). The SDK models this as `BLSCert { claims, signature }`, where `claims` is ABI-encoded hex.
-
-## Facilitator (x402)
-
-The facilitator wraps the credit flow for x402 resource servers. Clients never call it directly; resource servers do. The canonical implementation and runnable examples live in `https://github.com/4mica-Network/x402-4mica`:
-- `https://github.com/4mica-Network/x402-4mica/blob/main/examples/server/mock_paid_api.py` shows `/tab`, `/verify`, and `/settle` from a FastAPI resource server.
-- `https://github.com/4mica-Network/x402-4mica/blob/main/examples/python_client/client.py` shows a client signing `X-PAYMENT` headers with the Python SDK.
-- `https://github.com/4mica-Network/x402-4mica/blob/main/README.md` documents the full HTTP schema.
-
-Endpoint shapes:
-
-```text
-POST /tabs
-{ "userAddress": "...", "recipientAddress": "...", "erc20Token": null, "ttlSeconds": 3600 }
-
-POST /verify
-POST /settle
-{ "x402Version": 1, "paymentHeader": "<base64 X-PAYMENT>", "paymentRequirements": { ... } }
-```
-
-### Quick integration (resource servers)
-
-Use the facilitator (for example `https://x402.4mica.xyz/`) to open tabs and settle signed guarantees:
-
-- Advertise `scheme = "4mica-credit"` and a supported `network` in your `402 Payment Required` responses. Embed your POST tab endpoint in `paymentRequirements.extra.tabEndpoint`, alongside `payTo` / `asset` / `maxAmountRequired`.
-- Implement the tab endpoint to accept `{ userAddress, paymentRequirements }`, call the facilitator’s `POST /tabs` with `{ userAddress, recipientAddress = payTo, erc20Token = asset, ttlSeconds? }`, and return the tab response (at least `tabId`, `userAddress`, and the latest `nextReqId`/`reqId`). Cache tabs per `(user, recipient, asset)` to avoid extra calls; the facilitator will also reuse them.
-- When a retried request arrives with `X-PAYMENT`, base64-decode it and send `{ x402Version, paymentHeader, paymentRequirements }` to `/verify` (optional preflight) and `/settle` (to obtain the certificate).
-
-### Quick integration (clients)
-
-Install the SDK and sign the `X-PAYMENT` header with `X402Flow` (same flow as the TypeScript and Rust SDKs in `~/x402-4mica`):
-
-```bash
-pip install sdk-4mica
-```
-
-```python
-import asyncio
-from fourmica_sdk import (
-    Client,
-    ConfigBuilder,
-    PaymentRequirementsV1,
-    X402Flow,
-)
-
-payer_key = "0x..."    # wallet private key
-user_address = "0x..." # address to embed in the claims
-
-async def main():
-    cfg = ConfigBuilder().wallet_private_key(payer_key).rpc_url("https://api.4mica.xyz/").build()
-    client = await Client.new(cfg)
-    flow = X402Flow.from_client(client)
-
-    # Fetch the recipient's paymentRequirements (must include extra.tabEndpoint)
-    req_raw = fetch_requirements_somehow()[0]
-    requirements = PaymentRequirementsV1.from_raw(req_raw)
-
-    payment = await flow.sign_payment(requirements, user_address)
-    headers = {"X-PAYMENT": payment.header}  # base64 string to send with the retry
-
-    # Optional: settle immediately if the recipient delegates settlement to you
-    settlement = await flow.settle_payment(payment, requirements, facilitator_url="https://x402.4mica.xyz/")
-    print("Settlement:", settlement.settlement)
-
-    await client.aclose()
-
-asyncio.run(main())
-```
-
-### V2 payments
-
-To sign x402 v2 payments, build `X402PaymentRequired` and `PaymentRequirementsV2` and call `sign_payment_v2`:
-
-```python
-from fourmica_sdk import X402PaymentRequired, PaymentRequirementsV2, X402ResourceInfo
-
-accepted = PaymentRequirementsV2.from_raw(accepted_raw)
-payment_required = X402PaymentRequired(
-    x402_version=2,
-    resource=X402ResourceInfo.from_raw(resource_raw),
-    accepts=[accepted],
-)
-
-payment = await flow.sign_payment_v2(payment_required, accepted, user_address)
-```
 
 ## X-PAYMENT header schema
 
@@ -415,27 +526,59 @@ Facilitators enforce that `scheme` / `network` match `/supported`, `payTo` match
 5. Recipient optionally calls `/verify` with `{ x402Version, paymentHeader, paymentRequirements }`.
 6. Recipient calls `/settle` to obtain the certificate, then relays repayment details to the payer.
 
-## Configuration
+## API Methods Summary
 
-- `wallet_private_key` (required for on-chain gateway operations)
-- `evm_signer` (optional; any signer implementing `EvmSigner` for payment/auth signing)
-- `rpc_url` (defaults to `https://api.4mica.xyz/`)
-- `ethereum_http_rpc_url` and `contract_address` are auto-fetched from the facilitator unless provided.
+### UserClient Methods
 
-If both `wallet_private_key` and `evm_signer` are provided, the signer is used for
-payment/auth signing and the private key is still used for gateway operations.
+- `approve_erc20(token, amount)`
+- `deposit(amount, erc20_token=None)`
+- `get_user()`
+- `get_tab_payment_status(tab_id)`
+- `sign_payment(claims, scheme=SigningScheme.EIP712)`
+- `pay_tab(tab_id, req_id, amount, recipient_address, erc20_token=None)`
+- `request_withdrawal(amount, erc20_token=None)`
+- `cancel_withdrawal(erc20_token=None)`
+- `finalize_withdrawal(erc20_token=None)`
 
-Environment variables mirror the Rust SDK:
+### RecipientClient Methods
 
-```
-4MICA_WALLET_PRIVATE_KEY
-4MICA_RPC_URL
-4MICA_ETHEREUM_HTTP_RPC_URL
-4MICA_CONTRACT_ADDRESS
-```
+- `create_tab(user_address, recipient_address, erc20_token, ttl)`
+- `get_tab_payment_status(tab_id)`
+- `issue_payment_guarantee(claims, signature, scheme)`
+- `verify_payment_guarantee(cert)`
+- `remunerate(cert)`
+- `list_settled_tabs()`
+- `list_pending_remunerations()`
+- `get_tab(tab_id)`
+- `list_recipient_tabs(settlement_statuses=None)`
+- `get_tab_guarantees(tab_id)`
+- `get_latest_guarantee(tab_id)`
+- `get_guarantee(tab_id, req_id)`
+- `list_recipient_payments()`
+- `get_collateral_events_for_tab(tab_id)`
+- `get_user_asset_balance(user_address, asset_address)`
+
+### Admin / RPC Methods
+
+Available under `client.rpc` (requires an admin API key):
+
+- `update_user_suspension(user_address, suspended)`
+- `create_admin_api_key({"name": ..., "scopes": [...]})`
+- `list_admin_api_keys()`
+- `revoke_admin_api_key(key_id)`
+
+## Error Handling
+
+All SDK errors extend `FourMicaError`. Common error types include `ConfigError`, `RpcError`,
+`ClientInitializationError`, `ContractError`, `SigningError`, `VerificationError`, `X402Error`, and
+`AuthError`.
 
 ## Notes
 
 - All methods are `async`; use `asyncio.run` or your event loop of choice.
 - Remuneration requires `py-ecc` (`pip install 'sdk-4mica[bls]'`) to expand BLS signatures into the on-chain format.
 - Numeric values accept `int` or hex/decimal strings and are serialized to `0x`-prefixed hex when sent to the facilitator.
+
+## License
+
+MIT
