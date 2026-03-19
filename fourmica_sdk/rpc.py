@@ -171,6 +171,9 @@ class RpcProxy:
             f"/core/tabs/{_serialize_tab_id(tab_id)}/collateral-events"
         )
 
+    async def get_supported_tokens(self) -> List[Dict[str, Any]]:
+        return await self._get("/core/tokens")
+
     async def get_user_asset_balance(
         self, user_address: str, asset_address: str
     ) -> Optional[Dict[str, Any]]:

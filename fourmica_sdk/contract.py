@@ -115,7 +115,12 @@ class ContractGateway:
                 raise ContractError("SignedTransaction missing raw_transaction")
             tx_hash = await self.w3.eth.send_raw_transaction(raw_tx)
             receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash)
-            return dict(receipt)
+            receipt_dict = dict(receipt)
+            status = receipt_dict.get("status")
+            if status in (0, "0x0", False):
+                tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+                raise ContractError(f"transaction reverted: {tx_hash_hex}")
+            return receipt_dict
         except Exception as exc:
             raise ContractError(str(exc)) from exc
 
