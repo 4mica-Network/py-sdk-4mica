@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from .utils import normalize_address, parse_u256
+from .utils import normalize_address, normalize_bytes32_hex, parse_u256, serialize_u256
 
 
 def _get_any(raw: Dict[str, Any], *keys: str) -> Any:
@@ -58,6 +59,159 @@ class PaymentGuaranteeRequestClaims:
             asset_address=normalize_address(asset),
         )
 
+    def to_payload(self) -> Dict[str, Any]:
+        return {
+            "version": "v1",
+            "user_address": self.user_address,
+            "recipient_address": self.recipient_address,
+            "tab_id": serialize_u256(self.tab_id),
+            "req_id": serialize_u256(self.req_id),
+            "amount": serialize_u256(self.amount),
+            "asset_address": self.asset_address,
+            "timestamp": int(self.timestamp),
+        }
+
+
+@dataclass
+class PaymentGuaranteeValidationPolicyV2:
+    validation_registry_address: str
+    validation_request_hash: str
+    validation_chain_id: int
+    validator_address: str
+    validator_agent_id: int
+    min_validation_score: int
+    validation_subject_hash: str
+    required_validation_tag: str
+
+    def __post_init__(self) -> None:
+        self.validation_registry_address = normalize_address(
+            self.validation_registry_address
+        )
+        self.validation_request_hash = normalize_bytes32_hex(
+            self.validation_request_hash
+        )
+        self.validation_chain_id = parse_u256(self.validation_chain_id)
+        self.validator_address = normalize_address(self.validator_address)
+        self.validator_agent_id = parse_u256(self.validator_agent_id)
+        self.min_validation_score = int(self.min_validation_score)
+        if not 1 <= self.min_validation_score <= 100:
+            raise ValueError(
+                "min_validation_score must be in [1, 100], "
+                f"got {self.min_validation_score}"
+            )
+        self.validation_subject_hash = normalize_bytes32_hex(
+            self.validation_subject_hash
+        )
+        self.required_validation_tag = str(self.required_validation_tag)
+
+
+@dataclass
+class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
+    validation_registry_address: str
+    validation_request_hash: str
+    validation_chain_id: int
+    validator_address: str
+    validator_agent_id: int
+    min_validation_score: int
+    validation_subject_hash: str
+    required_validation_tag: str
+
+    def __post_init__(self) -> None:
+        self.user_address = normalize_address(self.user_address)
+        self.recipient_address = normalize_address(self.recipient_address)
+        self.tab_id = parse_u256(self.tab_id)
+        self.req_id = parse_u256(self.req_id)
+        self.amount = parse_u256(self.amount)
+        self.timestamp = int(self.timestamp)
+        self.asset_address = normalize_address(self.asset_address)
+        self.validation_registry_address = normalize_address(
+            self.validation_registry_address
+        )
+        self.validation_request_hash = normalize_bytes32_hex(
+            self.validation_request_hash
+        )
+        self.validation_chain_id = parse_u256(self.validation_chain_id)
+        self.validator_address = normalize_address(self.validator_address)
+        self.validator_agent_id = parse_u256(self.validator_agent_id)
+        self.min_validation_score = int(self.min_validation_score)
+        if not 1 <= self.min_validation_score <= 100:
+            raise ValueError(
+                "min_validation_score must be in [1, 100], "
+                f"got {self.min_validation_score}"
+            )
+        self.validation_subject_hash = normalize_bytes32_hex(
+            self.validation_subject_hash
+        )
+        self.required_validation_tag = str(self.required_validation_tag)
+
+    @classmethod
+    def new(
+        cls,
+        user_address: str,
+        recipient_address: str,
+        tab_id: int,
+        req_id: int,
+        amount: int,
+        timestamp: int,
+        erc20_token: Optional[str],
+        validation_registry_address: str,
+        validation_request_hash: str,
+        validation_chain_id: int,
+        validator_address: str,
+        validator_agent_id: int,
+        min_validation_score: int,
+        validation_subject_hash: str,
+        required_validation_tag: str,
+    ) -> "PaymentGuaranteeRequestClaimsV2":
+        asset = erc20_token or "0x0000000000000000000000000000000000000000"
+        return cls(
+            user_address=normalize_address(user_address),
+            recipient_address=normalize_address(recipient_address),
+            tab_id=parse_u256(tab_id),
+            req_id=parse_u256(req_id),
+            amount=parse_u256(amount),
+            timestamp=int(timestamp),
+            asset_address=normalize_address(asset),
+            validation_registry_address=normalize_address(validation_registry_address),
+            validation_request_hash=normalize_bytes32_hex(validation_request_hash),
+            validation_chain_id=parse_u256(validation_chain_id),
+            validator_address=normalize_address(validator_address),
+            validator_agent_id=parse_u256(validator_agent_id),
+            min_validation_score=int(min_validation_score),
+            validation_subject_hash=normalize_bytes32_hex(validation_subject_hash),
+            required_validation_tag=str(required_validation_tag),
+        )
+
+    @functools.cached_property
+    def validation_policy(self) -> PaymentGuaranteeValidationPolicyV2:
+        return PaymentGuaranteeValidationPolicyV2(
+            validation_registry_address=self.validation_registry_address,
+            validation_request_hash=self.validation_request_hash,
+            validation_chain_id=self.validation_chain_id,
+            validator_address=self.validator_address,
+            validator_agent_id=self.validator_agent_id,
+            min_validation_score=self.min_validation_score,
+            validation_subject_hash=self.validation_subject_hash,
+            required_validation_tag=self.required_validation_tag,
+        )
+
+    def to_payload(self) -> Dict[str, Any]:
+        payload = super().to_payload()
+        payload.update(
+            {
+                "version": "v2",
+                "validation_registry_address": self.validation_registry_address,
+                "validation_request_hash": self.validation_request_hash,
+                "validation_chain_id": int(self.validation_chain_id),
+                "validator_address": self.validator_address,
+                "validator_agent_id": serialize_u256(self.validator_agent_id),
+                "min_validation_score": int(self.min_validation_score),
+                "validation_subject_hash": self.validation_subject_hash,
+                "required_validation_tag": self.required_validation_tag,
+            }
+        )
+        return payload
+
 
 @dataclass
 class PaymentGuaranteeClaims:
@@ -71,6 +225,7 @@ class PaymentGuaranteeClaims:
     asset_address: str
     timestamp: int
     version: int
+    validation_policy: Optional[PaymentGuaranteeValidationPolicyV2] = None
 
 
 @dataclass
@@ -84,6 +239,19 @@ class TabPaymentStatus:
     paid: int
     remunerated: bool
     asset: str
+
+    @classmethod
+    def from_rpc(cls, raw: Dict[str, Any]) -> "TabPaymentStatus":
+        paid = raw.get("paid") if "paid" in raw else raw.get("paidAmount")
+        remunerated = (
+            raw.get("remunerated") if "remunerated" in raw else raw.get("paidOut")
+        )
+        asset = raw.get("asset") if "asset" in raw else raw.get("assetAddress")
+        return cls(
+            paid=parse_u256(paid),
+            remunerated=bool(remunerated),
+            asset=asset,
+        )
 
 
 @dataclass
@@ -242,3 +410,22 @@ class RecipientPaymentInfo:
             failed=bool(_get_any(raw, "failed")),
             created_at=int(_get_any(raw, "created_at", "createdAt")),
         )
+
+
+__all__: List[str] = [
+    "AssetBalanceInfo",
+    "BLSCert",
+    "CollateralEventInfo",
+    "GuaranteeInfo",
+    "PaymentGuaranteeClaims",
+    "PaymentGuaranteeRequestClaims",
+    "PaymentGuaranteeRequestClaimsV2",
+    "PaymentGuaranteeValidationPolicyV2",
+    "PaymentSignature",
+    "PendingRemunerationInfo",
+    "RecipientPaymentInfo",
+    "SigningScheme",
+    "TabInfo",
+    "TabPaymentStatus",
+    "UserInfo",
+]

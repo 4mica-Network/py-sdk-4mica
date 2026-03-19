@@ -37,6 +37,8 @@ from .models import (
     GuaranteeInfo,
     PaymentGuaranteeClaims,
     PaymentGuaranteeRequestClaims,
+    PaymentGuaranteeRequestClaimsV2,
+    PaymentGuaranteeValidationPolicyV2,
     PaymentSignature,
     PendingRemunerationInfo,
     RecipientPaymentInfo,
@@ -46,11 +48,18 @@ from .models import (
     UserInfo,
 )
 from .signing import EvmSigner, LocalAccountSigner, PaymentSigner
+from .validation import (
+    VALIDATION_REQUEST_BINDING_DOMAIN_V1,
+    VALIDATION_SUBJECT_BINDING_DOMAIN_V1,
+    compute_validation_request_hash,
+    compute_validation_subject_hash,
+)
 from .x402 import (
     FlowSigner,
     PaymentRequirements,
     PaymentRequirementsV1,
     PaymentRequirementsV2,
+    SettlementReceipt,
     X402PaymentEnvelopeV1,
     X402PaymentEnvelopeV2,
     X402Flow,
@@ -103,10 +112,16 @@ __all__ = [
     "GuaranteeInfo",
     "PaymentGuaranteeClaims",
     "PaymentGuaranteeRequestClaims",
+    "PaymentGuaranteeRequestClaimsV2",
+    "PaymentGuaranteeValidationPolicyV2",
     "PaymentSignature",
     "PendingRemunerationInfo",
     "RecipientPaymentInfo",
     "SigningScheme",
+    "VALIDATION_REQUEST_BINDING_DOMAIN_V1",
+    "VALIDATION_SUBJECT_BINDING_DOMAIN_V1",
+    "compute_validation_request_hash",
+    "compute_validation_subject_hash",
     "EvmSigner",
     "LocalAccountSigner",
     "PaymentSigner",
@@ -124,4 +139,5 @@ __all__ = [
     "X402ResourceInfo",
     "X402SignedPayment",
     "X402SettledPayment",
+    "SettlementReceipt",
 ]

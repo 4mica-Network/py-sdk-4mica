@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import httpx
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -9,6 +10,10 @@ from .signing import CorePublicParameters
 ADMIN_API_KEY_HEADER = "x-api-key"
 AUTHORIZATION_HEADER = "authorization"
 TokenProvider = Callable[[], Awaitable[str]]
+
+_RETRYABLE_STATUS_CODES: frozenset = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 0.5  # seconds
 
 
 def _serialize_tab_id(tab_id: int) -> str:
@@ -83,9 +88,26 @@ class RpcProxy:
             f"{response.status_code}: {message}", status_code=response.status_code
         )
 
-    async def _get(self, path: str, admin: bool = False) -> Any:
-        resp = await self._client.get(path, headers=await self._headers(admin))
-        return await self._decode(resp)
+    async def _get(
+        self,
+        path: str,
+        admin: bool = False,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        last_exc: Optional[RpcError] = None
+        for attempt in range(_MAX_RETRIES):
+            if attempt > 0:
+                await asyncio.sleep(_RETRY_BASE_DELAY * (2 ** (attempt - 1)))
+            resp = await self._client.get(
+                path, headers=await self._headers(admin), params=params
+            )
+            try:
+                return await self._decode(resp)
+            except RpcError as exc:
+                if exc.status_code not in _RETRYABLE_STATUS_CODES:
+                    raise
+                last_exc = exc
+        raise last_exc  # type: ignore[misc]
 
     async def _post(self, path: str, body: Any, admin: bool = False) -> Any:
         resp = await self._client.post(
@@ -119,11 +141,12 @@ class RpcProxy:
     async def list_recipient_tabs(
         self, recipient_address: str, settlement_statuses: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
-        query = ""
+        params: Optional[Dict[str, Any]] = None
         if settlement_statuses:
-            query = "".join([f"&settlement_status={s}" for s in settlement_statuses])
-            query = f"?{query.lstrip('&')}"
-        return await self._get(f"/core/recipients/{recipient_address}/tabs{query}")
+            params = {"settlement_status": settlement_statuses}
+        return await self._get(
+            f"/core/recipients/{recipient_address}/tabs", params=params
+        )
 
     async def get_tab_guarantees(self, tab_id: int) -> List[Dict[str, Any]]:
         return await self._get(f"/core/tabs/{_serialize_tab_id(tab_id)}/guarantees")

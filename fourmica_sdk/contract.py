@@ -215,6 +215,30 @@ class ContractGateway:
             "asset": to_checksum_address(asset),
         }
 
+    async def get_guarantee_version_config(self, version: int) -> Dict[str, Any]:
+        try:
+            result = await self.contract.functions.getGuaranteeVersionConfig(
+                int(version)
+            ).call()
+        except Exception as exc:
+            raise ContractError(str(exc)) from exc
+
+        if isinstance(result, dict):
+            domain = result.get("domainSeparator")
+            decoder = result.get("decoder")
+            enabled = result.get("enabled")
+        else:
+            domain = result[1]
+            decoder = result[2]
+            enabled = result[3]
+
+        domain_bytes = bytes(domain)
+        return {
+            "domain_separator": domain_bytes,
+            "decoder": normalize_address(decoder),
+            "enabled": bool(enabled),
+        }
+
     async def pay_tab_eth(
         self, tab_id: int, req_id: int, amount: int, recipient: str
     ) -> Dict[str, Any]:

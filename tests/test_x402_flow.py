@@ -8,6 +8,7 @@ import pytest
 from fourmica_sdk.errors import X402Error
 from fourmica_sdk.models import PaymentSignature, SigningScheme
 from fourmica_sdk.x402 import (
+    PaymentRequirementsExtra,
     PaymentRequirementsV1,
     PaymentRequirementsV2,
     TabResponse,
@@ -97,6 +98,40 @@ def test_payment_requirements_from_raw_handles_casing_and_required_fields():
     assert req.max_timeout_seconds == 300
 
 
+def test_payment_requirements_extra_parses_v2_validation_fields():
+    extra = PaymentRequirementsExtra.from_raw(
+        {
+            "tabEndpoint": "https://example.com/tab",
+            "validationRegistryAddress": "0x0000000000000000000000000000000000000011",
+            "validationChainId": 1,
+            "validatorAddress": "0x0000000000000000000000000000000000000022",
+            "validatorAgentId": "0x7",
+            "minValidationScore": 80,
+            "requiredValidationTag": "hard-finality",
+        }
+    )
+    assert extra.tab_endpoint == "https://example.com/tab"
+    assert (
+        extra.validation_registry_address
+        == "0x0000000000000000000000000000000000000011"
+    )
+    assert extra.validation_chain_id == 1
+    assert extra.validator_address == "0x0000000000000000000000000000000000000022"
+    assert extra.validator_agent_id == 7
+    assert extra.min_validation_score == 80
+    assert extra.required_validation_tag == "hard-finality"
+
+
+def test_payment_requirements_extra_rejects_invalid_validator_agent_id():
+    with pytest.raises(X402Error, match="invalid validatorAgentId"):
+        PaymentRequirementsExtra.from_raw(
+            {
+                "tabEndpoint": "https://example.com/tab",
+                "validatorAgentId": "not-a-number",
+            }
+        )
+
+
 def test_build_claims_rejects_user_mismatch():
     flow = StubX402Flow(StubSigner())
     requirements = PaymentRequirementsV1(
@@ -108,7 +143,7 @@ def test_build_claims_rejects_user_mismatch():
         extra={"tabEndpoint": "https://example.com"},
     )
     tab = TabResponse(
-        tab_id="3",
+        tab_id=3,
         user_address="0x00000000000000000000000000000000000000aa",
     )
     with pytest.raises(X402Error):
@@ -167,8 +202,8 @@ async def test_x402_flow_settles_payment_through_facilitator():
         assert payment.payload["claims"]["tab_id"] == hex(0x1234)
 
         settled = await flow.settle_payment(payment, requirements, facilitator_url)
-        assert settled.settlement["settled"] is True
-        assert settled.settlement["networkId"] == requirements.network
+        assert settled.settlement.raw["settled"] is True
+        assert settled.settlement.raw["networkId"] == requirements.network
         assert (
             settled.payment.payload["claims"]["recipient_address"]
             == requirements.pay_to
@@ -186,7 +221,15 @@ async def test_sign_payment_v2_builds_header_and_payload():
         amount="5",
         pay_to="0x0000000000000000000000000000000000000003",
         asset="0x0000000000000000000000000000000000000000",
-        extra={"tabEndpoint": "https://example.com"},
+        extra={
+            "tabEndpoint": "https://example.com",
+            "validationRegistryAddress": "0x0000000000000000000000000000000000000011",
+            "validationChainId": 1,
+            "validatorAddress": "0x0000000000000000000000000000000000000022",
+            "validatorAgentId": "0x7",
+            "minValidationScore": 80,
+            "requiredValidationTag": "hard-finality",
+        },
     )
     payment_required = X402PaymentRequired(
         x402_version=2,
@@ -206,4 +249,52 @@ async def test_sign_payment_v2_builds_header_and_payload():
     assert envelope["x402Version"] == 2
     assert envelope["accepted"]["amount"] == "5"
     assert envelope["resource"]["mimeType"] == "application/json"
+    assert envelope["payload"]["claims"]["version"] == "v2"
     assert signed.payload["claims"]["tab_id"] == hex(2)
+    assert signed.payload["claims"]["req_id"] == hex(1)
+    assert signed.payload["claims"]["amount"] == hex(5)
+    assert (
+        signed.payload["claims"]["validation_registry_address"]
+        == "0x0000000000000000000000000000000000000011"
+    )
+    assert signed.payload["claims"]["validation_chain_id"] == 1
+    assert (
+        signed.payload["claims"]["validator_address"]
+        == "0x0000000000000000000000000000000000000022"
+    )
+    assert signed.payload["claims"]["validator_agent_id"] == "0x7"
+    assert signed.payload["claims"]["min_validation_score"] == 80
+    assert signed.payload["claims"]["required_validation_tag"] == "hard-finality"
+    assert isinstance(signed.payload["claims"]["validation_request_hash"], str)
+    assert isinstance(signed.payload["claims"]["validation_subject_hash"], str)
+    assert signed.payload["claims"]["validation_request_hash"] != "0x" + "00" * 32
+    assert signed.payload["claims"]["validation_subject_hash"] != "0x" + "00" * 32
+
+
+@pytest.mark.asyncio
+async def test_sign_payment_v2_rejects_missing_validation_fields():
+    flow = StubX402Flow(StubSigner())
+    accepted = PaymentRequirementsV2(
+        scheme="4mica+pay",
+        network="testnet",
+        amount="5",
+        pay_to="0x0000000000000000000000000000000000000003",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={"tabEndpoint": "https://example.com"},
+    )
+    payment_required = X402PaymentRequired(
+        x402_version=2,
+        resource=X402ResourceInfo(
+            url="https://example.com/data",
+            description="example",
+            mime_type="application/json",
+        ),
+        accepts=[accepted],
+    )
+
+    with pytest.raises(X402Error, match="missing V2 validation fields"):
+        await flow.sign_payment_v2(
+            payment_required,
+            accepted,
+            "0x0000000000000000000000000000000000000001",
+        )

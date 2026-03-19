@@ -2,6 +2,8 @@
 
 The official Python SDK for interacting with the 4Mica payment network.
 
+For V2 rollout and test execution, see `V2_VERIFICATION.md`.
+
 ## Overview
 
 This SDK provides:
@@ -179,8 +181,9 @@ Four-step direct flow:
    hits core `/core/payment-tabs`. The SDK returns `tab_id`; compute the next `req_id` by calling
    `latest = await recipient_client.recipient.get_latest_guarantee(tab_id)` and using
    `req_id = 0 if latest is None else latest.req_id + 1`.
-3. Sign the guarantee (payer). Build `PaymentGuaranteeRequestClaims` with `tab_id`, `req_id`,
-   amount, timestamp, and asset, then call
+3. Sign the guarantee (payer). Build `PaymentGuaranteeRequestClaims` for V1, or
+   `PaymentGuaranteeRequestClaimsV2` for validation-gated V2 using
+   `compute_validation_subject_hash(...)` and `compute_validation_request_hash(...)`, then call
    `signature = await payer_client.user.sign_payment(claims, SigningScheme.EIP712)`.
 4. Settle (recipient). Call `cert = await recipient_client.recipient.issue_payment_guarantee(...)`
    with the claims + payer signature, then `await recipient_client.recipient.remunerate(cert)` to
@@ -232,6 +235,14 @@ async def main() -> None:
         print("REQ_ID=", req_id)
         print("AMOUNT_WEI=", AMOUNT_WEI)
         print("ASSET_ADDRESS=", asset_address)
+        print(
+            "ACCEPTED_GUARANTEE_VERSIONS=",
+            recipient_client.params.accepted_guarantee_versions_or_default(),
+        )
+        print(
+            "TRUSTED_VALIDATION_REGISTRIES=",
+            recipient_client.params.trusted_validation_registries,
+        )
     finally:
         await recipient_client.aclose()
 
@@ -243,7 +254,8 @@ if __name__ == "__main__":
 ### Payer (client) quick start
 
 Run this after you have a `TAB_ID` and `REQ_ID` from the recipient. It signs the guarantee and
-optionally issues a certificate if you also pass `RECIPIENT_KEY`.
+optionally issues a certificate if you also pass `RECIPIENT_KEY`. For V2, provide the validation
+policy env vars as well.
 
 ```bash
 export PAYER_KEY=0x..
@@ -253,6 +265,12 @@ export REQ_ID=<req_id>
 export AMOUNT_WEI=100000000000000000
 export ASSET_ADDRESS=0x0000000000000000000000000000000000000000
 export RECIPIENT_KEY=0x.. # optional
+export VALIDATION_REGISTRY_ADDRESS=0x.. # optional, enables V2 when set
+export VALIDATION_CHAIN_ID=137 # optional, defaults to client.params.chain_id
+export VALIDATOR_ADDRESS=0x.. # required for V2
+export VALIDATOR_AGENT_ID=7 # required for V2
+export MIN_VALIDATION_SCORE=80 # required for V2
+export REQUIRED_VALIDATION_TAG=hard-finality # optional
 ```
 
 ```python
@@ -267,7 +285,10 @@ from fourmica_sdk import (
     Client,
     ConfigBuilder,
     PaymentGuaranteeRequestClaims,
+    PaymentGuaranteeRequestClaimsV2,
     SigningScheme,
+    compute_validation_request_hash,
+    compute_validation_subject_hash,
 )
 
 PAYER_KEY = os.environ["PAYER_KEY"]
@@ -278,6 +299,83 @@ DEFAULT_ASSET_ADDRESS = "0x0000000000000000000000000000000000000000"
 REQUESTED_AMOUNT_WEI = int(os.getenv("AMOUNT_WEI", "100000000000000000"), 0)
 ASSET_ADDRESS = os.getenv("ASSET_ADDRESS") or DEFAULT_ASSET_ADDRESS
 RECIPIENT_KEY = os.getenv("RECIPIENT_KEY")
+VALIDATION_REGISTRY_ADDRESS = os.getenv("VALIDATION_REGISTRY_ADDRESS")
+VALIDATION_CHAIN_ID = os.getenv("VALIDATION_CHAIN_ID")
+VALIDATOR_ADDRESS = os.getenv("VALIDATOR_ADDRESS")
+VALIDATOR_AGENT_ID = os.getenv("VALIDATOR_AGENT_ID")
+MIN_VALIDATION_SCORE = os.getenv("MIN_VALIDATION_SCORE")
+REQUIRED_VALIDATION_TAG = os.getenv("REQUIRED_VALIDATION_TAG", "")
+
+
+def build_claims(
+    payer_client: Client,
+    user_address: str,
+    amount_wei: int,
+    timestamp: int,
+) -> PaymentGuaranteeRequestClaims | PaymentGuaranteeRequestClaimsV2:
+    base_claims = PaymentGuaranteeRequestClaims.new(
+        user_address=user_address,
+        recipient_address=RECIPIENT_ADDRESS,
+        tab_id=TAB_ID,
+        req_id=REQ_ID,
+        amount=amount_wei,
+        timestamp=timestamp,
+        erc20_token=ASSET_ADDRESS,
+    )
+
+    wants_v2 = any(
+        value is not None
+        for value in (
+            VALIDATION_REGISTRY_ADDRESS,
+            VALIDATION_CHAIN_ID,
+            VALIDATOR_ADDRESS,
+            VALIDATOR_AGENT_ID,
+            MIN_VALIDATION_SCORE,
+        )
+    )
+    if not wants_v2:
+        return base_claims
+
+    validation_chain_id = (
+        int(VALIDATION_CHAIN_ID, 0)
+        if VALIDATION_CHAIN_ID is not None
+        else int(payer_client.params.chain_id)
+    )
+    validation_subject_hash = compute_validation_subject_hash(base_claims)
+    partial_claims = PaymentGuaranteeRequestClaimsV2.new(
+        user_address=base_claims.user_address,
+        recipient_address=base_claims.recipient_address,
+        tab_id=base_claims.tab_id,
+        req_id=base_claims.req_id,
+        amount=base_claims.amount,
+        timestamp=base_claims.timestamp,
+        erc20_token=base_claims.asset_address,
+        validation_registry_address=VALIDATION_REGISTRY_ADDRESS,
+        validation_request_hash="0x" + "00" * 32,
+        validation_chain_id=validation_chain_id,
+        validator_address=VALIDATOR_ADDRESS,
+        validator_agent_id=int(VALIDATOR_AGENT_ID, 0),
+        min_validation_score=int(MIN_VALIDATION_SCORE, 0),
+        validation_subject_hash=validation_subject_hash,
+        required_validation_tag=REQUIRED_VALIDATION_TAG,
+    )
+    return PaymentGuaranteeRequestClaimsV2.new(
+        user_address=partial_claims.user_address,
+        recipient_address=partial_claims.recipient_address,
+        tab_id=partial_claims.tab_id,
+        req_id=partial_claims.req_id,
+        amount=partial_claims.amount,
+        timestamp=partial_claims.timestamp,
+        erc20_token=partial_claims.asset_address,
+        validation_registry_address=partial_claims.validation_registry_address,
+        validation_request_hash=compute_validation_request_hash(partial_claims),
+        validation_chain_id=partial_claims.validation_chain_id,
+        validator_address=partial_claims.validator_address,
+        validator_agent_id=partial_claims.validator_agent_id,
+        min_validation_score=partial_claims.min_validation_score,
+        validation_subject_hash=partial_claims.validation_subject_hash,
+        required_validation_tag=partial_claims.required_validation_tag,
+    )
 
 
 async def main() -> None:
@@ -309,32 +407,13 @@ async def main() -> None:
             print("COLLATERAL_AVAILABLE= <unknown>")
         print("AMOUNT_WEI=", amount_wei)
 
-        claims = PaymentGuaranteeRequestClaims.new(
-            user_address=user_address,
-            recipient_address=RECIPIENT_ADDRESS,
-            tab_id=TAB_ID,
-            req_id=REQ_ID,
-            amount=amount_wei,
-            timestamp=int(time.time()),
-            erc20_token=ASSET_ADDRESS,
+        claims = build_claims(
+            payer_client, user_address, amount_wei, timestamp=int(time.time())
         )
         signature = await payer_client.user.sign_payment(claims, SigningScheme.EIP712)
 
         print("PAYER_SIGNATURE=", signature.signature)
-        print(
-            "CLAIMS_JSON=",
-            json.dumps(
-                {
-                    "user_address": claims.user_address,
-                    "recipient_address": claims.recipient_address,
-                    "tab_id": claims.tab_id,
-                    "req_id": claims.req_id,
-                    "amount": claims.amount,
-                    "asset_address": claims.asset_address,
-                    "timestamp": claims.timestamp,
-                }
-            ),
-        )
+        print("CLAIMS_JSON=", json.dumps(claims.__dict__))
         if RECIPIENT_KEY:
             recipient_cfg = (
                 ConfigBuilder().from_env().wallet_private_key(RECIPIENT_KEY).build()
@@ -354,6 +433,10 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+For V2 x402 flows, include the following fields under `paymentRequirements.extra`:
+`validationRegistryAddress`, `validationChainId`, `validatorAddress`, `validatorAgentId`,
+`minValidationScore`, and optional `requiredValidationTag`.
 
 ## X402 Flow (HTTP 402)
 
@@ -486,6 +569,7 @@ Notes:
 - Tab lifecycle: tabs start `Pending`; the first valid guarantee opens the tab and sets `start_timestamp` to the claim timestamp. Guarantees must be within `[start_timestamp, start_timestamp + ttl]` and are rejected if the tab is closed or expired.
 - Request ids: `req_id` is per-tab and strictly sequential. The first guarantee uses `req_id = 0`; each new guarantee must be `last_req_id + 1`. The facilitator returns `nextReqId` in `/tabs`.
 - Guarantee request claims (v1) are the signed payload: `{ user_address, recipient_address, tab_id, req_id, amount, asset_address, timestamp }`. `asset_address` is the zero address for ETH if omitted. `timestamp` is seconds since epoch and is validated by core.
+- Guarantee request claims (v2) extend V1 with validation policy fields: `validation_registry_address`, `validation_request_hash`, `validation_chain_id`, `validator_address`, `validator_agent_id`, `min_validation_score`, `validation_subject_hash`, and `required_validation_tag`.
 - Guarantee certificates are BLS signatures over `PaymentGuaranteeClaims` (core adds `domain`, `total_amount` which is the running sum for the tab, and `version`). The SDK models this as `BLSCert { claims, signature }`, where `claims` is ABI-encoded hex.
 
 ## X-PAYMENT header schema
@@ -516,6 +600,8 @@ Notes:
 
 Facilitators enforce that `scheme` / `network` match `/supported`, `payTo` matches
 `recipient_address` in the claims, and `asset` / `maxAmountRequired` equal the signed `amount`.
+For V2, `payload.claims.version` is `"v2"` and the validation policy fields are included in the
+same `claims` object.
 
 ## End-to-end credit flow (x402)
 

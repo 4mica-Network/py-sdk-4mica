@@ -1,21 +1,38 @@
 from __future__ import annotations
 
 import base64
+import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol, Union
+from urllib.parse import urljoin
 
 import httpx
 
 from .errors import X402Error
 from .models import (
     PaymentGuaranteeRequestClaims,
+    PaymentGuaranteeRequestClaimsV2,
+    PaymentGuaranteeValidationPolicyV2,
     PaymentSignature,
     SigningScheme,
 )
 from .utils import ValidationError, normalize_address, parse_u256, validate_url
+from .validation import (
+    compute_validation_request_hash,
+    compute_validation_subject_hash,
+)
 
 if TYPE_CHECKING:
     from .client import Client
+
+
+def _pick(raw: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Return the first present, non-None value from raw by key priority."""
+    for key in keys:
+        if key in raw and raw[key] is not None:
+            return raw[key]
+    return default
 
 
 @dataclass
@@ -34,17 +51,11 @@ class PaymentRequirementsV1:
 
     @classmethod
     def from_raw(cls, raw: Dict[str, Any]) -> "PaymentRequirementsV1":
-        def pick(keys, default=None):
-            for key in keys:
-                if key in raw and raw[key] is not None:
-                    return raw[key]
-            return default
-
-        amount = pick(["maxAmountRequired"])
-        pay_to = pick(["payTo"])
-        asset = pick(["asset"])
-        scheme = pick(["scheme"])
-        network = pick(["network"])
+        amount = _pick(raw, "maxAmountRequired")
+        pay_to = _pick(raw, "payTo")
+        asset = _pick(raw, "asset")
+        scheme = _pick(raw, "scheme")
+        network = _pick(raw, "network")
         if not all([amount, pay_to, asset, scheme, network]):
             missing = [
                 k
@@ -67,12 +78,12 @@ class PaymentRequirementsV1:
             max_amount_required=str(amount),
             pay_to=pay_to,
             asset=asset,
-            extra=pick(["extra"], default={}) or {},
-            resource=pick(["resource"]),
-            description=pick(["description"]),
-            mime_type=pick(["mimeType"]),
-            output_schema=pick(["outputSchema"]),
-            max_timeout_seconds=pick(["maxTimeoutSeconds"]),
+            extra=_pick(raw, "extra", default={}) or {},
+            resource=_pick(raw, "resource"),
+            description=_pick(raw, "description"),
+            mime_type=_pick(raw, "mimeType"),
+            output_schema=_pick(raw, "outputSchema"),
+            max_timeout_seconds=_pick(raw, "maxTimeoutSeconds"),
         )
 
     def to_payload(self) -> Dict[str, Any]:
@@ -109,17 +120,11 @@ class PaymentRequirementsV2:
 
     @classmethod
     def from_raw(cls, raw: Dict[str, Any]) -> "PaymentRequirementsV2":
-        def pick(keys, default=None):
-            for key in keys:
-                if key in raw and raw[key] is not None:
-                    return raw[key]
-            return default
-
-        amount = pick(["amount"])
-        pay_to = pick(["payTo"])
-        asset = pick(["asset"])
-        scheme = pick(["scheme"])
-        network = pick(["network"])
+        amount = _pick(raw, "amount")
+        pay_to = _pick(raw, "payTo")
+        asset = _pick(raw, "asset")
+        scheme = _pick(raw, "scheme")
+        network = _pick(raw, "network")
         if not all([amount, pay_to, asset, scheme, network]):
             missing = [
                 k
@@ -136,7 +141,7 @@ class PaymentRequirementsV2:
                 f"payment requirements missing fields: {', '.join(missing)}"
             )
 
-        max_timeout_seconds = pick(["maxTimeoutSeconds"])
+        max_timeout_seconds = _pick(raw, "maxTimeoutSeconds")
         if max_timeout_seconds is not None:
             max_timeout_seconds = int(max_timeout_seconds)
 
@@ -146,7 +151,7 @@ class PaymentRequirementsV2:
             asset=asset,
             amount=str(amount),
             pay_to=pay_to,
-            extra=pick(["extra"], default={}) or {},
+            extra=_pick(raw, "extra", default={}) or {},
             max_timeout_seconds=max_timeout_seconds,
         )
 
@@ -167,6 +172,12 @@ class PaymentRequirementsV2:
 @dataclass
 class PaymentRequirementsExtra:
     tab_endpoint: Optional[str]
+    validation_registry_address: Optional[str] = None
+    validation_chain_id: Optional[int] = None
+    validator_address: Optional[str] = None
+    validator_agent_id: Optional[int] = None
+    min_validation_score: Optional[int] = None
+    required_validation_tag: Optional[str] = None
 
     @classmethod
     def from_raw(cls, raw: Dict[str, Any]) -> "PaymentRequirementsExtra":
@@ -180,14 +191,65 @@ class PaymentRequirementsExtra:
             tab_endpoint = validate_url(str(tab_endpoint))
         except ValidationError as exc:
             raise X402Error(f"invalid tabEndpoint: {exc}") from exc
-        return cls(tab_endpoint=tab_endpoint)
+        validation_registry_address = raw.get("validationRegistryAddress")
+        if validation_registry_address is not None:
+            try:
+                validation_registry_address = normalize_address(
+                    str(validation_registry_address)
+                )
+            except ValidationError as exc:
+                raise X402Error(f"invalid validationRegistryAddress: {exc}") from exc
+
+        validation_chain_id = raw.get("validationChainId")
+        if validation_chain_id is not None:
+            try:
+                validation_chain_id = parse_u256(validation_chain_id)
+            except ValidationError as exc:
+                raise X402Error(f"invalid validationChainId: {exc}") from exc
+
+        validator_address = raw.get("validatorAddress")
+        if validator_address is not None:
+            try:
+                validator_address = normalize_address(str(validator_address))
+            except ValidationError as exc:
+                raise X402Error(f"invalid validatorAddress: {exc}") from exc
+
+        validator_agent_id = raw.get("validatorAgentId")
+        if validator_agent_id is not None:
+            try:
+                validator_agent_id = parse_u256(validator_agent_id)
+            except ValidationError as exc:
+                raise X402Error(f"invalid validatorAgentId: {exc}") from exc
+
+        min_validation_score = raw.get("minValidationScore")
+        if min_validation_score is not None:
+            try:
+                min_validation_score = int(min_validation_score)
+            except (TypeError, ValueError) as exc:
+                raise X402Error(
+                    f"invalid minValidationScore: {min_validation_score}"
+                ) from exc
+
+        required_validation_tag = raw.get("requiredValidationTag")
+        if required_validation_tag is not None:
+            required_validation_tag = str(required_validation_tag)
+
+        return cls(
+            tab_endpoint=tab_endpoint,
+            validation_registry_address=validation_registry_address,
+            validation_chain_id=validation_chain_id,
+            validator_address=validator_address,
+            validator_agent_id=validator_agent_id,
+            min_validation_score=min_validation_score,
+            required_validation_tag=required_validation_tag,
+        )
 
 
 @dataclass
 class TabResponse:
-    tab_id: str
+    tab_id: int
     user_address: str
-    next_req_id: Optional[str] = None
+    next_req_id: Optional[int] = None
 
 
 @dataclass
@@ -282,14 +344,37 @@ class X402SignedPayment:
 
 
 @dataclass
+class SettlementReceipt:
+    """Typed settlement response from the facilitator's settle endpoint."""
+
+    tab_id: Optional[str]
+    guarantee: Optional[Dict[str, Any]]
+    receipt: Optional[Dict[str, Any]]
+    raw: Dict[str, Any]
+
+    @classmethod
+    def from_raw(cls, raw: Dict[str, Any]) -> "SettlementReceipt":
+        if not isinstance(raw, dict):
+            raw = {}
+        return cls(
+            tab_id=raw.get("tabId") or raw.get("tab_id"),
+            guarantee=raw.get("guarantee"),
+            receipt=raw.get("receipt"),
+            raw=raw,
+        )
+
+
+@dataclass
 class X402SettledPayment:
     payment: X402SignedPayment
-    settlement: Any
+    settlement: SettlementReceipt
 
 
 class FlowSigner(Protocol):
     async def sign_payment(
-        self, claims: PaymentGuaranteeRequestClaims, scheme: SigningScheme
+        self,
+        claims: Union[PaymentGuaranteeRequestClaims, PaymentGuaranteeRequestClaimsV2],
+        scheme: SigningScheme,
     ) -> PaymentSignature: ...
 
 
@@ -337,7 +422,7 @@ class X402Flow:
         tab = await self._request_tab(
             2, accepted, user_address, payment_required.resource
         )
-        claims = self._build_claims(accepted, tab, user_address)
+        claims = self._build_claims_v2(accepted, tab, user_address)
         try:
             signature = await self.signer.sign_payment(claims, SigningScheme.EIP712)
         except Exception as exc:
@@ -362,8 +447,6 @@ class X402Flow:
         payment_requirements: PaymentRequirementsV1,
         facilitator_url: str,
     ) -> X402SettledPayment:
-        from urllib.parse import urljoin
-
         try:
             base_url = validate_url(facilitator_url)
         except ValidationError as exc:
@@ -388,7 +471,9 @@ class X402Flow:
             raise X402Error(
                 f"settlement failed with status {response.status_code}: {settlement}"
             )
-        return X402SettledPayment(payment=payment, settlement=settlement)
+        return X402SettledPayment(
+            payment=payment, settlement=SettlementReceipt.from_raw(settlement)
+        )
 
     async def _request_tab(
         self,
@@ -420,16 +505,18 @@ class X402Flow:
         except Exception as exc:
             raise X402Error(f"tab response invalid JSON: {exc}") from exc
 
-        def pick(keys, default=None):
-            for key in keys:
-                if key in body and body[key] is not None:
-                    return body[key]
-            return default
+        raw_tab_id = _pick(body, "tabId", "tab_id")
+        raw_req_id = _pick(body, "nextReqId", "next_req_id", "reqId", "req_id")
+        try:
+            tab_id = parse_u256(raw_tab_id) if raw_tab_id is not None else 0
+            next_req_id = parse_u256(raw_req_id) if raw_req_id is not None else None
+        except ValidationError as exc:
+            raise X402Error(f"invalid tab response fields: {exc}") from exc
 
         return TabResponse(
-            tab_id=pick(["tabId", "tab_id"]),
-            user_address=pick(["userAddress", "user_address"]),
-            next_req_id=pick(["nextReqId", "next_req_id", "reqId", "req_id"]),
+            tab_id=tab_id,
+            user_address=_pick(body, "userAddress", "user_address"),
+            next_req_id=next_req_id,
         )
 
     def _build_claims(
@@ -438,8 +525,6 @@ class X402Flow:
         tab: TabResponse,
         user_address: str,
     ) -> PaymentGuaranteeRequestClaims:
-        tab_id = self._parse_u256(tab.tab_id)
-        req_id = self._parse_u256(tab.next_req_id) if tab.next_req_id else 0
         amount_raw = (
             requirements.max_amount_required
             if isinstance(requirements, PaymentRequirementsV1)
@@ -450,20 +535,77 @@ class X402Flow:
             raise X402Error(
                 f"user mismatch in paymentRequirements: found {tab.user_address}, expected {user_address}"
             )
-        import time
-
         try:
             return PaymentGuaranteeRequestClaims.new(
                 user_address,
                 normalize_address(requirements.pay_to),
-                tab_id,
-                req_id,
+                tab.tab_id,
+                tab.next_req_id if tab.next_req_id is not None else 0,
                 amount,
                 int(time.time()),
                 requirements.asset,
             )
         except ValidationError as exc:
             raise X402Error(str(exc)) from exc
+
+    def _build_claims_v2(
+        self,
+        requirements: PaymentRequirementsV2,
+        tab: TabResponse,
+        user_address: str,
+    ) -> PaymentGuaranteeRequestClaimsV2:
+        base = self._build_claims(requirements, tab, user_address)
+        extra = PaymentRequirementsExtra.from_raw(requirements.extra)
+
+        missing = []
+        if extra.validation_registry_address is None:
+            missing.append("validationRegistryAddress")
+        if extra.validation_chain_id is None:
+            missing.append("validationChainId")
+        if extra.validator_address is None:
+            missing.append("validatorAddress")
+        if extra.validator_agent_id is None:
+            missing.append("validatorAgentId")
+        if extra.min_validation_score is None:
+            missing.append("minValidationScore")
+        if missing:
+            raise X402Error(
+                f"payment requirements missing V2 validation fields: {', '.join(missing)}"
+            )
+
+        # Compute hashes in order: subject first (depends on base claims),
+        # then request (depends on subject hash + policy inputs).
+        # validation_request_hash is NOT an input to its own computation.
+        validation_subject_hash = compute_validation_subject_hash(base)
+        policy_inputs = PaymentGuaranteeValidationPolicyV2(
+            validation_registry_address=extra.validation_registry_address,
+            validation_request_hash="0x" + "00" * 32,  # placeholder, not used in hash
+            validation_chain_id=extra.validation_chain_id,
+            validator_address=extra.validator_address,
+            validator_agent_id=extra.validator_agent_id,
+            min_validation_score=extra.min_validation_score,
+            validation_subject_hash=validation_subject_hash,
+            required_validation_tag=extra.required_validation_tag or "",
+        )
+        validation_request_hash = compute_validation_request_hash(policy_inputs)
+
+        return PaymentGuaranteeRequestClaimsV2.new(
+            user_address=base.user_address,
+            recipient_address=base.recipient_address,
+            tab_id=base.tab_id,
+            req_id=base.req_id,
+            amount=base.amount,
+            timestamp=base.timestamp,
+            erc20_token=base.asset_address,
+            validation_registry_address=policy_inputs.validation_registry_address,
+            validation_request_hash=validation_request_hash,
+            validation_chain_id=policy_inputs.validation_chain_id,
+            validator_address=policy_inputs.validator_address,
+            validator_agent_id=policy_inputs.validator_agent_id,
+            min_validation_score=policy_inputs.min_validation_score,
+            validation_subject_hash=validation_subject_hash,
+            required_validation_tag=policy_inputs.required_validation_tag,
+        )
 
     @staticmethod
     def _validate_scheme(scheme: str) -> None:
@@ -479,19 +621,11 @@ class X402Flow:
 
     @staticmethod
     def _build_payment_payload(
-        claims: PaymentGuaranteeRequestClaims, signature: PaymentSignature
+        claims: Union[PaymentGuaranteeRequestClaims, PaymentGuaranteeRequestClaimsV2],
+        signature: PaymentSignature,
     ) -> Dict[str, Any]:
         return {
-            "claims": {
-                "version": "v1",
-                "user_address": claims.user_address,
-                "recipient_address": claims.recipient_address,
-                "tab_id": hex(int(claims.tab_id)),
-                "req_id": hex(int(claims.req_id)),
-                "amount": hex(int(claims.amount)),
-                "asset_address": claims.asset_address,
-                "timestamp": int(claims.timestamp),
-            },
+            "claims": claims.to_payload(),
             "signature": signature.signature,
             "scheme": signature.scheme.value,
         }
@@ -525,12 +659,12 @@ class X402Flow:
     def _json_dumps(obj: Any) -> str:
         import json
 
-        def default(o: Any):
-            if hasattr(o, "value"):
-                return getattr(o, "value")
-            if hasattr(o, "__dict__"):
-                return o.__dict__
-            return str(o)
+        def default(o: Any) -> Any:
+            if isinstance(o, Enum):
+                return o.value
+            raise TypeError(
+                f"Object of type {type(o).__name__} is not JSON serializable"
+            )
 
         return json.dumps(obj, default=default)
 
