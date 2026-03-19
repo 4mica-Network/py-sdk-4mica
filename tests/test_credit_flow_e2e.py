@@ -480,6 +480,13 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             deposit_amount,
             timeout_ms=payment_sync_timeout_ms,
         )
+        deposit_balance = await _wait_for_user_asset_balance(
+            payer,
+            payer_address,
+            erc20_token,
+            lambda b: b.total == deposit_amount and b.locked == 0,
+            timeout_ms=payment_sync_timeout_ms,
+        )
         print(f"[e2e] deposit confirmed: {_format_units(deposit_amount, decimals)}")
 
         # ------------------------------------------------------------------
@@ -537,7 +544,10 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             payer,
             payer_address,
             erc20_token,
-            lambda b: b.total == deposit_amount and b.locked >= paid_decoded.amount,
+            lambda b: (
+                b.total == deposit_balance.total
+                and b.locked == deposit_balance.locked + paid_decoded.amount
+            ),
             timeout_ms=payment_sync_timeout_ms,
         )
 
@@ -546,7 +556,10 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         # ------------------------------------------------------------------
         print("[e2e] Step 6: pay tab on-chain")
         await payer.user.approve_erc20(erc20_token, guarantee_amount)
-        await payer.user.pay_tab(
+        recipient_token_balance_before = await _get_erc20_balance(
+            payer, erc20_token, recipient_address
+        )
+        pay_receipt = await payer.user.pay_tab(
             paid_tab_id,
             paid_req_id,
             guarantee_amount,
@@ -554,6 +567,13 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             erc20_token,
         )
         await _mine_block(payer)
+        recipient_token_balance_after = await _get_erc20_balance(
+            payer, erc20_token, recipient_address
+        )
+        assert (
+            recipient_token_balance_after - recipient_token_balance_before
+            == guarantee_amount
+        )
 
         status = await _wait_for_tab_payment_status(
             payer,
@@ -561,22 +581,48 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             lambda s: s.paid >= guarantee_amount,
             timeout_ms=payment_sync_timeout_ms,
         )
-        assert status.paid >= guarantee_amount
+        assert status.paid == guarantee_amount
+        assert not status.remunerated
+        assert normalize_address(status.asset) == normalize_address(erc20_token)
         print(f"[e2e] tab paid: {_format_units(status.paid, decimals)}")
+
+        pay_tx_hash = pay_receipt.get("transactionHash", b"")
+        if isinstance(pay_tx_hash, bytes):
+            pay_tx_hash = "0x" + pay_tx_hash.hex()
+        pay_tx_hash = str(pay_tx_hash)
+
+        recipient_payments = await recipient.recipient.list_recipient_payments()
+        recorded_payment = next(
+            (
+                payment
+                for payment in recipient_payments
+                if payment.tx_hash.lower().removeprefix("0x")
+                == pay_tx_hash.lower().removeprefix("0x")
+            ),
+            None,
+        )
+        assert recorded_payment is not None
+        assert recorded_payment.amount == guarantee_amount
+        assert not recorded_payment.failed
 
         if require_finalization:
             print("[e2e] waiting for payment finalization...")
-            await _wait_for_user_asset_balance(
+            unlocked_after_payment = await _wait_for_user_asset_balance(
                 payer,
                 payer_address,
                 erc20_token,
                 lambda b: (
-                    b.total == deposit_amount
+                    b.total == locked_after_paid_guarantee.total
                     and b.locked
-                    <= max(locked_after_paid_guarantee.locked - guarantee_amount, 0)
+                    == locked_after_paid_guarantee.locked - guarantee_amount
                 ),
                 timeout_ms=payment_finalization_timeout_ms,
                 mine_on_poll=True,
+            )
+            assert unlocked_after_payment.total == locked_after_paid_guarantee.total
+            assert (
+                unlocked_after_payment.locked
+                == locked_after_paid_guarantee.locked - guarantee_amount
             )
 
         guarantees = await recipient.recipient.get_tab_guarantees(paid_tab_id)
@@ -663,7 +709,7 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         assert rem_tab_status.paid == 0
         print("[e2e] remuneration confirmed on-chain")
 
-        await _wait_for_user_asset_balance(
+        post_remuneration_balance = await _wait_for_user_asset_balance(
             payer,
             payer_address,
             erc20_token,
@@ -675,13 +721,46 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             ),
             timeout_ms=payment_sync_timeout_ms,
         )
+        post_remuneration_assets = await payer.user.get_user()
+        post_remuneration_position = next(
+            (
+                a
+                for a in post_remuneration_assets
+                if normalize_address(a.asset) == normalize_address(erc20_token)
+            ),
+            None,
+        )
+        assert post_remuneration_position is not None
+        assert post_remuneration_position.collateral == post_remuneration_balance.total
+
+        effective_withdraw_amount = min(
+            withdraw_amount, post_remuneration_position.collateral
+        )
+        assert effective_withdraw_amount > 0
 
         # ------------------------------------------------------------------
         # 9. Payer requests withdrawal
         # ------------------------------------------------------------------
         print("[e2e] Step 9: request withdrawal")
-        await payer.user.request_withdrawal(withdraw_amount, erc20_token)
+        payer_token_balance_before_withdrawal = await _get_erc20_balance(
+            payer, erc20_token, payer_address
+        )
+        await payer.user.request_withdrawal(effective_withdraw_amount, erc20_token)
         await _mine_block(payer)
+
+        requested_assets = await payer.user.get_user()
+        requested_position = next(
+            (
+                a
+                for a in requested_assets
+                if normalize_address(a.asset) == normalize_address(erc20_token)
+            ),
+            None,
+        )
+        assert requested_position is not None
+        assert requested_position.collateral == post_remuneration_position.collateral
+        assert requested_position.withdrawal_request_amount == effective_withdraw_amount
+        assert requested_position.withdrawal_request_timestamp > 0
 
         try:
             grace = int(
@@ -690,8 +769,11 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         except Exception:
             grace = 5
         print(f"[e2e] withdrawal grace period: {grace}s — waiting...")
-        await asyncio.sleep(max(grace + 2, 2))
-        await _mine_block(payer)
+        await _wait_until_unix_ts(
+            "Withdrawal grace period",
+            requested_position.withdrawal_request_timestamp + grace + 1,
+            payer,
+        )
 
         # ------------------------------------------------------------------
         # 10. Finalize withdrawal
@@ -701,23 +783,35 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         await _mine_block(payer)
         print("[e2e] withdrawal finalized")
 
-        # Verify remaining collateral
-        user_assets = await payer.user.get_user()
-        token_key = normalize_address(
-            erc20_token or "0x0000000000000000000000000000000000000000"
+        payer_token_balance_after_withdrawal = await _get_erc20_balance(
+            payer, erc20_token, payer_address
         )
-        asset_info = next(
-            (a for a in user_assets if normalize_address(a.asset) == token_key), None
+        assert (
+            payer_token_balance_after_withdrawal - payer_token_balance_before_withdrawal
+            == effective_withdraw_amount
         )
-        if asset_info is not None:
-            expected_remaining = max(
-                deposit_amount - guarantee_amount - withdraw_amount, 0
-            )
-            print(
-                f"[e2e] remaining collateral: "
-                f"{_format_units(asset_info.collateral, decimals)}"
-                f" (expected ~{_format_units(expected_remaining, decimals)})"
-            )
+
+        final_assets = await payer.user.get_user()
+        final_position = next(
+            (
+                a
+                for a in final_assets
+                if normalize_address(a.asset) == normalize_address(erc20_token)
+            ),
+            None,
+        )
+        assert final_position is not None
+        assert (
+            final_position.collateral
+            == requested_position.collateral - effective_withdraw_amount
+        )
+        assert final_position.withdrawal_request_amount == 0
+        assert final_position.withdrawal_request_timestamp == 0
+        print(
+            f"[e2e] remaining collateral: "
+            f"{_format_units(final_position.collateral, decimals)}"
+            f" (expected {_format_units(requested_position.collateral - effective_withdraw_amount, decimals)})"
+        )
 
         print("[e2e] V1 credit flow PASSED")
 
