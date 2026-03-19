@@ -103,6 +103,46 @@ def test_encode_decode_guarantee_v2_round_trip():
     )
 
 
+def test_decode_guarantee_v2_tuple_encoded_inner_payload():
+    inner = abi_encode(
+        [
+            "(bytes32,uint256,uint256,address,address,uint256,uint256,address,"
+            "uint64,uint64,address,bytes32,uint64,address,uint256,uint8,bytes32,string)"
+        ],
+        [
+            (
+                b"\x00" * 32,
+                1,
+                2,
+                "0x0000000000000000000000000000000000000001",
+                "0x0000000000000000000000000000000000000002",
+                3,
+                4,
+                "0x0000000000000000000000000000000000000000",
+                1234,
+                2,
+                "0x0000000000000000000000000000000000000011",
+                b"\xab" * 32,
+                1,
+                "0x0000000000000000000000000000000000000022",
+                7,
+                80,
+                b"\xcd" * 32,
+                "hard-finality",
+            )
+        ],
+    )
+    encoded = abi_encode(["uint64", "bytes"], [2, inner])
+
+    decoded = decode_guarantee_claims(encoded)
+
+    assert decoded.version == 2
+    assert decoded.validation_policy is not None
+    assert decoded.validation_policy.validation_chain_id == 1
+    assert decoded.validation_policy.validator_agent_id == 7
+    assert decoded.validation_policy.required_validation_tag == "hard-finality"
+
+
 def test_encode_guarantee_v2_requires_validation_policy():
     claims = PaymentGuaranteeClaims(
         domain=b"\x00" * 32,

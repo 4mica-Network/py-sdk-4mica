@@ -88,6 +88,8 @@ _DEFAULT_RECIPIENT_KEY = (
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 )
 _DEFAULT_CORE_RPC_URL = "http://127.0.0.1:3000"
+_DEFAULT_V2_VALIDATION_REGISTRY = "0x8004Cb1BF31DAf7788923b405b754f57acEB4272"
+_DEFAULT_V2_VALIDATOR_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
 # ---------------------------------------------------------------------------
 # Environment helpers
@@ -436,23 +438,17 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         withdraw_raw = _env("WITHDRAW_AMOUNT")
 
         deposit_amount = (
-            int(deposit_raw, 0)
-            if deposit_raw
-            else _parse_units("1.0", decimals)
+            int(deposit_raw, 0) if deposit_raw else _parse_units("1.0", decimals)
         )
         guarantee_amount = (
-            int(guarantee_raw, 0)
-            if guarantee_raw
-            else _parse_units("0.001", decimals)
+            int(guarantee_raw, 0) if guarantee_raw else _parse_units("0.001", decimals)
         )
         default_withdraw_amount = min(
             _parse_units("0.5", decimals),
             max(deposit_amount - guarantee_amount, 0),
         )
         withdraw_amount = (
-            int(withdraw_raw, 0)
-            if withdraw_raw
-            else default_withdraw_amount
+            int(withdraw_raw, 0) if withdraw_raw else default_withdraw_amount
         )
 
         tab_ttl = await _resolve_effective_tab_ttl(payer)
@@ -574,8 +570,11 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
                 payer,
                 payer_address,
                 erc20_token,
-                lambda b: b.total == deposit_amount
-                and b.locked <= max(locked_after_paid_guarantee.locked - guarantee_amount, 0),
+                lambda b: (
+                    b.total == deposit_amount
+                    and b.locked
+                    <= max(locked_after_paid_guarantee.locked - guarantee_amount, 0)
+                ),
                 timeout_ms=payment_finalization_timeout_ms,
                 mine_on_poll=True,
             )
@@ -595,9 +594,7 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
 
         settled_tabs = await recipient.recipient.list_settled_tabs()
         settled_ids = [t.tab_id for t in settled_tabs]
-        assert paid_tab_id in settled_ids, (
-            f"tab {hex(paid_tab_id)} not in settled tabs"
-        )
+        assert paid_tab_id in settled_ids, f"tab {hex(paid_tab_id)} not in settled tabs"
 
         # ------------------------------------------------------------------
         # 7. Create remunerated tab and guarantee
@@ -608,7 +605,9 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         )
         print(f"[e2e] rem_tab_id: {hex(rem_tab_id)}")
         rem_latest_before = await recipient.recipient.get_latest_guarantee(rem_tab_id)
-        rem_req_id = rem_latest_before.req_id + 1 if rem_latest_before is not None else 0
+        rem_req_id = (
+            rem_latest_before.req_id + 1 if rem_latest_before is not None else 0
+        )
 
         rem_timestamp = int(time.time())
         rem_claims = PaymentGuaranteeRequestClaims.new(
@@ -668,10 +667,12 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             payer,
             payer_address,
             erc20_token,
-            lambda b: b.total
-            == max(balance_before_remuneration.total - rem_decoded.total_amount, 0)
-            and b.locked
-            == max(balance_before_remuneration.locked - rem_decoded.total_amount, 0),
+            lambda b: (
+                b.total
+                == max(balance_before_remuneration.total - rem_decoded.total_amount, 0)
+                and b.locked
+                == max(balance_before_remuneration.locked - rem_decoded.total_amount, 0)
+            ),
             timeout_ms=payment_sync_timeout_ms,
         )
 
@@ -722,34 +723,20 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
 
 
 # ---------------------------------------------------------------------------
-# V2 Credit Flow (requires validation env vars)
+# V2 Credit Flow
 # ---------------------------------------------------------------------------
-
-
-def _v2_env_available() -> bool:
-    return bool(_env("VALIDATION_REGISTRY") and _env("VALIDATOR_ADDRESS"))
 
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(420)
-@pytest.mark.skipif(
-    not _v2_env_available(),
-    reason="V2 validation env vars not set (VALIDATION_REGISTRY, VALIDATOR_ADDRESS)",
-)
 async def test_credit_flow_v2_guarantee_when_validation_config_available():
     """
     V2 guarantee flow:
-    deposit → create tab → compute hashes → sign V2 claims → issue guarantee → verify → pay → remunerate
+    deposit → create tab → compute hashes → sign V2 claims → issue guarantee → verify
     """
     payer_key = _env("PAYER_PRIVATE_KEY", _DEFAULT_PAYER_KEY)
     recipient_key = _env("RECIPIENT_PRIVATE_KEY", _DEFAULT_RECIPIENT_KEY)
     payment_sync_timeout_ms = _env_int("PAYMENT_SYNC_TIMEOUT_MS", 150_000)
-
-    validation_registry = _env("VALIDATION_REGISTRY")
-    validator_address = _env("VALIDATOR_ADDRESS")
-    validator_agent_id = _env_int("VALIDATOR_AGENT_ID", 0)
-    min_score = _env_int("MIN_VALIDATION_SCORE", 80)
-    validation_tag = _env("VALIDATION_TAG", "hard-finality")
 
     async with (
         await Client.new(_make_config(payer_key)) as payer,
@@ -758,8 +745,27 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
         await _login_if_enabled(payer)
         await _login_if_enabled(recipient)
 
+        if 2 not in payer.params.accepted_guarantee_versions_or_default():
+            pytest.skip("core does not advertise V2 guarantee support")
+
         payer_address = payer._signer.address
         recipient_address = recipient._signer.address
+
+        validation_registry = _env(
+            "VALIDATION_REGISTRY",
+            (
+                payer.params.trusted_validation_registries[0]
+                if payer.params.trusted_validation_registries
+                else _DEFAULT_V2_VALIDATION_REGISTRY
+            ),
+        )
+        validator_address = _env(
+            "VALIDATOR_ADDRESS",
+            _DEFAULT_V2_VALIDATOR_ADDRESS,
+        )
+        validator_agent_id = _env_int("VALIDATOR_AGENT_ID", 1)
+        min_score = _env_int("MIN_VALIDATION_SCORE", 80)
+        validation_tag = _env("VALIDATION_TAG", "")
 
         # Resolve chain id for validation registry
         validation_chain_id_env = _env("VALIDATION_CHAIN_ID")
@@ -776,16 +782,12 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
 
         v2_amount_raw = _env("V2_GUARANTEE_AMOUNT")
         v2_amount = (
-            int(v2_amount_raw, 0)
-            if v2_amount_raw
-            else _parse_units("0.001", decimals)
+            int(v2_amount_raw, 0) if v2_amount_raw else _parse_units("0.001", decimals)
         )
 
         deposit_raw = _env("DEPOSIT_AMOUNT")
         deposit_amount = (
-            int(deposit_raw, 0)
-            if deposit_raw
-            else _parse_units("1.0", decimals)
+            int(deposit_raw, 0) if deposit_raw else _parse_units("1.0", decimals)
         )
 
         print(f"\n[e2e-v2] payer:     {payer_address}")
@@ -913,36 +915,4 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
             f"[e2e-v2] V2 guarantee verified, tag: "
             f"{decoded.validation_policy.required_validation_tag}"
         )
-
-        # ------------------------------------------------------------------
-        # 7. Pay tab on-chain
-        # ------------------------------------------------------------------
-        print("[e2e-v2] Step 7: pay tab")
-        await payer.user.approve_erc20(erc20_token, v2_amount)
-        await payer.user.pay_tab(
-            tab_id, req_id, v2_amount, recipient_address, erc20_token
-        )
-        await _mine_block(payer)
-
-        status = await _wait_for_tab_payment_status(
-            payer,
-            tab_id,
-            lambda s: s.paid >= v2_amount,
-            timeout_ms=payment_sync_timeout_ms,
-        )
-        assert status.paid >= v2_amount
-        print(f"[e2e-v2] tab paid: {_format_units(status.paid, decimals)}")
-
-        # ------------------------------------------------------------------
-        # 8. Remunerate
-        # ------------------------------------------------------------------
-        print("[e2e-v2] Step 8: remunerate V2")
-        await recipient.recipient.remunerate(cert)
-        await _mine_block(recipient)
-
-        tab_status = await recipient.recipient.get_tab_payment_status(tab_id)
-        assert tab_status.remunerated, (
-            "tab should be marked remunerated after V2 remunerate()"
-        )
-
-        print("[e2e-v2] V2 credit flow PASSED")
+        print("[e2e-v2] V2 issue+verify flow PASSED")

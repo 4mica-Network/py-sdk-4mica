@@ -13,6 +13,7 @@ _BLS_DEPENDENCY_MESSAGE = (
 def _load_bls_modules():
     try:
         from py_ecc.bls import G2Basic, G2ProofOfPossession as bls_pop
+
         try:
             from py_ecc.bls.g2_primitives import signature_to_G2
         except ImportError:  # pragma: no cover - older py-ecc

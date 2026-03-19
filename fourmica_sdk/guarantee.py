@@ -43,6 +43,10 @@ _CLAIMS_TYPES_V2 = [
     "bytes32",  # validation_subject_hash
     "string",  # required_validation_tag
 ]
+_CLAIMS_TYPE_V2_TUPLE = (
+    "(bytes32,uint256,uint256,address,address,uint256,uint256,address,"
+    "uint64,uint64,address,bytes32,uint64,address,uint256,uint8,bytes32,string)"
+)
 
 _CLAIMS_ENCODED_BYTES_V1 = 32 * len(_CLAIMS_TYPES)
 _MIN_ENVELOPE_BYTES = 32 * 3
@@ -91,26 +95,28 @@ def encode_guarantee_claims(claims: PaymentGuaranteeClaims) -> bytes:
         if policy is None:
             raise VerificationError("v2 guarantee claims require validation_policy")
         encoded_claims = abi_encode(
-            _CLAIMS_TYPES_V2,
+            [_CLAIMS_TYPE_V2_TUPLE],
             [
-                domain,
-                parse_u256(claims.tab_id),
-                parse_u256(claims.req_id),
-                claims.user_address,
-                claims.recipient_address,
-                parse_u256(claims.amount),
-                parse_u256(claims.total_amount),
-                claims.asset_address,
-                int(claims.timestamp),
-                int(claims.version),
-                policy.validation_registry_address,
-                _ensure_bytes32(policy.validation_request_hash),
-                int(policy.validation_chain_id),
-                policy.validator_address,
-                parse_u256(policy.validator_agent_id),
-                int(policy.min_validation_score),
-                _ensure_bytes32(policy.validation_subject_hash),
-                policy.required_validation_tag,
+                (
+                    domain,
+                    parse_u256(claims.tab_id),
+                    parse_u256(claims.req_id),
+                    claims.user_address,
+                    claims.recipient_address,
+                    parse_u256(claims.amount),
+                    parse_u256(claims.total_amount),
+                    claims.asset_address,
+                    int(claims.timestamp),
+                    int(claims.version),
+                    policy.validation_registry_address,
+                    _ensure_bytes32(policy.validation_request_hash),
+                    int(policy.validation_chain_id),
+                    policy.validator_address,
+                    parse_u256(policy.validator_agent_id),
+                    int(policy.min_validation_score),
+                    _ensure_bytes32(policy.validation_subject_hash),
+                    policy.required_validation_tag,
+                )
             ],
         )
     else:
@@ -179,6 +185,21 @@ def _decode_v1_claims(encoded: bytes) -> PaymentGuaranteeClaims:
 
 
 def _decode_v2_claims(encoded: bytes) -> PaymentGuaranteeClaims:
+    try:
+        (decoded,) = abi_decode([_CLAIMS_TYPE_V2_TUPLE], encoded)
+        return _build_decoded_v2_claims(decoded)
+    except Exception as tuple_exc:
+        try:
+            decoded = abi_decode(_CLAIMS_TYPES_V2, encoded)
+            return _build_decoded_v2_claims(decoded)
+        except Exception as flat_exc:
+            raise VerificationError(
+                "failed to decode V2 guarantee claims: "
+                f"{tuple_exc}; fallback decode failed: {flat_exc}"
+            ) from flat_exc
+
+
+def _build_decoded_v2_claims(decoded) -> PaymentGuaranteeClaims:
     (
         domain,
         tab_id,
@@ -198,7 +219,7 @@ def _decode_v2_claims(encoded: bytes) -> PaymentGuaranteeClaims:
         min_validation_score,
         validation_subject_hash,
         required_validation_tag,
-    ) = abi_decode(_CLAIMS_TYPES_V2, encoded)
+    ) = decoded
     if int(claims_version) != 2:
         raise VerificationError(
             f"unsupported guarantee claims version: {claims_version}"
