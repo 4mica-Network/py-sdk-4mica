@@ -185,12 +185,11 @@ class PaymentRequirementsExtra:
         if not isinstance(raw, dict):
             raise X402Error("invalid paymentRequirements.extra")
         tab_endpoint = raw.get("tabEndpoint")
-        if tab_endpoint is None:
-            return cls(tab_endpoint=None)
-        try:
-            tab_endpoint = validate_url(str(tab_endpoint))
-        except ValidationError as exc:
-            raise X402Error(f"invalid tabEndpoint: {exc}") from exc
+        if tab_endpoint is not None:
+            try:
+                tab_endpoint = validate_url(str(tab_endpoint))
+            except ValidationError as exc:
+                raise X402Error(f"invalid tabEndpoint: {exc}") from exc
         validation_registry_address = raw.get("validationRegistryAddress")
         if validation_registry_address is not None:
             try:

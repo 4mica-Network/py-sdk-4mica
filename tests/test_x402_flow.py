@@ -122,6 +122,29 @@ def test_payment_requirements_extra_parses_v2_validation_fields():
     assert extra.required_validation_tag == "hard-finality"
 
 
+def test_payment_requirements_extra_parses_v2_fields_without_tab_endpoint():
+    extra = PaymentRequirementsExtra.from_raw(
+        {
+            "validationRegistryAddress": "0x0000000000000000000000000000000000000011",
+            "validationChainId": 1,
+            "validatorAddress": "0x0000000000000000000000000000000000000022",
+            "validatorAgentId": "0x7",
+            "minValidationScore": 80,
+            "requiredValidationTag": "hard-finality",
+        }
+    )
+    assert extra.tab_endpoint is None
+    assert (
+        extra.validation_registry_address
+        == "0x0000000000000000000000000000000000000011"
+    )
+    assert extra.validation_chain_id == 1
+    assert extra.validator_address == "0x0000000000000000000000000000000000000022"
+    assert extra.validator_agent_id == 7
+    assert extra.min_validation_score == 80
+    assert extra.required_validation_tag == "hard-finality"
+
+
 def test_payment_requirements_extra_rejects_invalid_validator_agent_id():
     with pytest.raises(X402Error, match="invalid validatorAgentId"):
         PaymentRequirementsExtra.from_raw(
