@@ -1,7 +1,8 @@
 """End-to-end tests for the 4Mica credit flow.
 
 Set ``4MICA_E2E=1`` to enable these tests. The suite is aligned with the TS
-SDK e2e flow and talks directly to core, not to a separate facilitator.
+SDK e2e flow and can either talk directly to core or route tab / verify /
+settle operations through the local x402-4mica facilitator.
 
 The tests expect:
 
@@ -30,6 +31,8 @@ Environment variables (all optional unless noted):
   PAYMENT_SYNC_TIMEOUT_MS        poll timeout (ms)    (default: 150000)
   4MICA_REQUIRE_PAYMENT_FINALIZATION  set "0" to skip finalization wait (default: on)
   PAYMENT_FINALIZATION_TIMEOUT_MS  finalization timeout (ms) (default: 210000 when enabled)
+  4MICA_E2E_MODE                 "direct" | "facilitator" | "prompt" (default: prompt on TTY, else direct)
+  FACILITATOR_URL                facilitator URL       (default: http://127.0.0.1:8080)
   # V2-only:
   VALIDATION_REGISTRY            validation registry address
   VALIDATOR_ADDRESS              validator address
@@ -44,11 +47,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 
+import httpx
 import pytest
 
 from fourmica_sdk.client import Client
@@ -88,8 +93,10 @@ _DEFAULT_RECIPIENT_KEY = (
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 )
 _DEFAULT_CORE_RPC_URL = "http://127.0.0.1:3000"
+_DEFAULT_FACILITATOR_URL = "http://127.0.0.1:8080"
 _DEFAULT_V2_VALIDATION_REGISTRY = "0x8004Cb1BF31DAf7788923b405b754f57acEB4272"
 _DEFAULT_V2_VALIDATOR_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+_E2E_MODE: Optional[str] = None
 
 # ---------------------------------------------------------------------------
 # Environment helpers
@@ -103,6 +110,57 @@ def _env(name: str, default: str = "") -> str:
 def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name)
     return int(raw, 0) if raw else default
+
+
+def _resolve_e2e_mode() -> str:
+    global _E2E_MODE
+    if _E2E_MODE is not None:
+        return _E2E_MODE
+
+    configured = _env("4MICA_E2E_MODE", "").strip().lower()
+    if configured in {"direct", "facilitator"}:
+        _E2E_MODE = configured
+        print(f"[e2e] using configured mode: {_E2E_MODE}")
+        return _E2E_MODE
+
+    if configured and configured != "prompt":
+        raise RuntimeError(
+            "4MICA_E2E_MODE must be one of: direct, facilitator, prompt"
+        )
+
+    if sys.stdin is not None and sys.stdin.isatty():
+        response = (
+            input(
+                "\nSelect E2E mode: [d]irect core API or [f]acilitator via x402-4mica? "
+            )
+            .strip()
+            .lower()
+        )
+        _E2E_MODE = "facilitator" if response.startswith("f") else "direct"
+    else:
+        _E2E_MODE = "direct"
+
+    print(f"[e2e] selected mode: {_E2E_MODE}")
+    return _E2E_MODE
+
+
+def _facilitator_url() -> str:
+    return _env("FACILITATOR_URL", _DEFAULT_FACILITATOR_URL).rstrip("/")
+
+
+def _caip2_network(client: Client) -> str:
+    return f"eip155:{client.gateway.chain_id}"
+
+
+def _parse_u256_like(value: Any, *, field: str) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            raise RuntimeError(f"{field} cannot be empty")
+        return int(raw, 0)
+    raise RuntimeError(f"invalid {field}: {value!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +355,166 @@ async def _login_if_enabled(client: Client) -> None:
         await client.login()
 
 
+def _build_payment_payload(
+    claims: PaymentGuaranteeRequestClaims | PaymentGuaranteeRequestClaimsV2,
+    signature: str,
+    scheme: SigningScheme,
+) -> Dict[str, Any]:
+    return {
+        "claims": claims.to_payload(),
+        "signature": signature,
+        "scheme": scheme.value,
+    }
+
+
+def _build_v1_requirements(
+    network: str,
+    recipient_address: str,
+    asset_address: str,
+    amount: int,
+    ttl_seconds: Optional[int],
+) -> Dict[str, Any]:
+    return {
+        "scheme": "4mica-credit",
+        "network": network,
+        "maxAmountRequired": str(amount),
+        "payTo": recipient_address,
+        "asset": asset_address,
+        "extra": {},
+        "maxTimeoutSeconds": ttl_seconds,
+    }
+
+
+def _build_v2_requirements(
+    network: str,
+    recipient_address: str,
+    asset_address: str,
+    amount: int,
+    ttl_seconds: Optional[int],
+    validation_registry: str,
+    validator_address: str,
+    validator_agent_id: int,
+    min_validation_score: int,
+    required_validation_tag: str,
+) -> Dict[str, Any]:
+    return {
+        "scheme": "4mica-credit",
+        "network": network,
+        "amount": str(amount),
+        "payTo": recipient_address,
+        "asset": asset_address,
+        "maxTimeoutSeconds": ttl_seconds,
+        "extra": {
+            "validationRegistryAddress": validation_registry,
+            "validatorAddress": validator_address,
+            "validatorAgentId": hex(validator_agent_id),
+            "minValidationScore": min_validation_score,
+            "requiredValidationTag": required_validation_tag,
+        },
+    }
+
+
+async def _facilitator_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(f"{_facilitator_url()}{path}", json=payload)
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"facilitator {path} returned {response.status_code}: {response.text}"
+        ) from exc
+    data = response.json()
+    if not isinstance(data, dict):
+        raise RuntimeError(f"facilitator {path} returned non-object payload: {data!r}")
+    return data
+
+
+async def _facilitator_open_tab(
+    user_address: str,
+    recipient_address: str,
+    network: str,
+    erc20_token: str,
+    ttl_seconds: Optional[int],
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "userAddress": user_address,
+        "recipientAddress": recipient_address,
+        "network": network,
+        "erc20Token": erc20_token,
+    }
+    if ttl_seconds is not None:
+        payload["ttlSeconds"] = ttl_seconds
+    return await _facilitator_post("/tabs", payload)
+
+
+async def _facilitator_verify(
+    x402_version: int,
+    payment_payload: Dict[str, Any],
+    payment_requirements: Dict[str, Any],
+) -> Dict[str, Any]:
+    return await _facilitator_post(
+        "/verify",
+        {
+            "x402Version": x402_version,
+            "paymentPayload": payment_payload,
+            "paymentRequirements": payment_requirements,
+        },
+    )
+
+
+async def _facilitator_settle(
+    x402_version: int,
+    payment_payload: Dict[str, Any],
+    payment_requirements: Dict[str, Any],
+) -> Dict[str, Any]:
+    return await _facilitator_post(
+        "/settle",
+        {
+            "x402Version": x402_version,
+            "paymentPayload": payment_payload,
+            "paymentRequirements": payment_requirements,
+        },
+    )
+
+
+async def _issue_v1_guarantee_via_facilitator_or_core(
+    recipient: Client,
+    network: str,
+    recipient_address: str,
+    erc20_token: str,
+    amount: int,
+    tab_ttl: Optional[int],
+    claims: PaymentGuaranteeRequestClaims,
+    signature: str,
+    scheme: SigningScheme,
+) -> "BLSCert":
+    requirements = _build_v1_requirements(
+        network, recipient_address, erc20_token, amount, tab_ttl
+    )
+    envelope = {
+        "x402Version": 1,
+        "scheme": "4mica-credit",
+        "network": network,
+        "payload": _build_payment_payload(claims, signature, scheme),
+    }
+    verify_payload = await _facilitator_verify(1, envelope, requirements)
+    assert verify_payload.get("isValid") is True, verify_payload
+    return await recipient.recipient.issue_payment_guarantee(claims, signature, scheme)
+
+
+def _bls_cert_from_facilitator(payload: Dict[str, Any]):
+    from fourmica_sdk.models import BLSCert
+
+    certificate = payload.get("certificate")
+    if not isinstance(certificate, dict):
+        raise RuntimeError(f"facilitator response missing certificate: {payload!r}")
+    claims = certificate.get("claims")
+    signature = certificate.get("signature")
+    if not isinstance(claims, str) or not isinstance(signature, str):
+        raise RuntimeError(f"facilitator certificate is malformed: {certificate!r}")
+    return BLSCert(claims=claims, signature=signature)
+
+
 # ---------------------------------------------------------------------------
 # Polling helpers
 # ---------------------------------------------------------------------------
@@ -338,6 +556,12 @@ async def _wait_for_user_asset_balance(
     while time.monotonic() < deadline:
         balance = await payer_client.recipient.get_user_asset_balance(
             user_address, asset_key
+        )
+        print(
+            f"[debug:user_balance] {user_address} / {asset_key}"
+            f" → total={balance.total if balance else 'None'}"
+            f" locked={balance.locked if balance else 'None'}"
+            f" matched={balance is not None and check_fn(balance)}"
         )
         if balance is not None and check_fn(balance):
             return balance
@@ -422,11 +646,13 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         await Client.new(_make_config(payer_key)) as payer,
         await Client.new(_make_config(recipient_key)) as recipient,
     ):
+        mode = _resolve_e2e_mode()
         await _login_if_enabled(payer)
         await _login_if_enabled(recipient)
 
         payer_address = payer._signer.address
         recipient_address = recipient._signer.address
+        network = _caip2_network(payer)
 
         # Resolve token and amounts
         token = await _resolve_token_metadata(payer)
@@ -456,6 +682,7 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         print(f"\n[e2e] payer:     {payer_address}")
         print(f"[e2e] recipient: {recipient_address}")
         print(f"[e2e] rpc:       {_env('4MICA_RPC_URL', _DEFAULT_CORE_RPC_URL)}")
+        print(f"[e2e] mode:      {mode}")
         print(f"[e2e] token:     {erc20_token} ({token.symbol})")
         print(f"[e2e] deposit:   {_format_units(deposit_amount, decimals)}")
         print(f"[e2e] guarantee: {_format_units(guarantee_amount, decimals)}")
@@ -469,6 +696,11 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         # 1. Deposit collateral
         # ------------------------------------------------------------------
         print("[e2e] Step 1: deposit collateral")
+        initial_balance = await payer.recipient.get_user_asset_balance(
+            payer_address, erc20_token
+        )
+        initial_total = initial_balance.total if initial_balance is not None else 0
+        initial_locked = initial_balance.locked if initial_balance is not None else 0
         await payer.user.approve_erc20(erc20_token, deposit_amount)
         await payer.user.deposit(deposit_amount, erc20_token)
         await _mine_block(payer)
@@ -484,7 +716,9 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             payer,
             payer_address,
             erc20_token,
-            lambda b: b.total == deposit_amount and b.locked == 0,
+            lambda b: (
+                b.total >= initial_total + deposit_amount and b.locked == initial_locked
+            ),
             timeout_ms=payment_sync_timeout_ms,
         )
         print(f"[e2e] deposit confirmed: {_format_units(deposit_amount, decimals)}")
@@ -493,12 +727,22 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         # 2. Recipient creates a paid tab
         # ------------------------------------------------------------------
         print("[e2e] Step 2: create paid tab")
-        paid_tab_id = await recipient.recipient.create_tab(
-            payer_address, recipient_address, erc20_token, tab_ttl
-        )
+        if mode == "facilitator":
+            paid_tab = await _facilitator_open_tab(
+                payer_address, recipient_address, network, erc20_token, tab_ttl
+            )
+            paid_tab_id = _parse_u256_like(paid_tab.get("tabId"), field="tabId")
+            paid_req_id = _parse_u256_like(
+                paid_tab.get("nextReqId", paid_tab.get("next_req_id", "0x0")),
+                field="nextReqId",
+            )
+        else:
+            paid_tab_id = await recipient.recipient.create_tab(
+                payer_address, recipient_address, erc20_token, tab_ttl
+            )
+            latest_before = await recipient.recipient.get_latest_guarantee(paid_tab_id)
+            paid_req_id = latest_before.req_id + 1 if latest_before is not None else 0
         print(f"[e2e] paid_tab_id: {hex(paid_tab_id)}")
-        latest_before = await recipient.recipient.get_latest_guarantee(paid_tab_id)
-        paid_req_id = latest_before.req_id + 1 if latest_before is not None else 0
 
         # ------------------------------------------------------------------
         # 3. User signs paid guarantee request
@@ -521,9 +765,22 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         # 4. Recipient issues paid guarantee
         # ------------------------------------------------------------------
         print("[e2e] Step 4: issue paid guarantee")
-        paid_cert = await recipient.recipient.issue_payment_guarantee(
-            paid_claims, paid_sig.signature, paid_sig.scheme
-        )
+        if mode == "facilitator":
+            paid_cert = await _issue_v1_guarantee_via_facilitator_or_core(
+                recipient,
+                network,
+                recipient_address,
+                erc20_token,
+                guarantee_amount,
+                tab_ttl,
+                paid_claims,
+                paid_sig.signature,
+                paid_sig.scheme,
+            )
+        else:
+            paid_cert = await recipient.recipient.issue_payment_guarantee(
+                paid_claims, paid_sig.signature, paid_sig.scheme
+            )
         print(f"[e2e] cert claims: {paid_cert.claims[:20]}...")
 
         # ------------------------------------------------------------------
@@ -646,14 +903,24 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
         # 7. Create remunerated tab and guarantee
         # ------------------------------------------------------------------
         print("[e2e] Step 7: create remunerated tab")
-        rem_tab_id = await recipient.recipient.create_tab(
-            payer_address, recipient_address, erc20_token, tab_ttl
-        )
+        if mode == "facilitator":
+            rem_tab = await _facilitator_open_tab(
+                payer_address, recipient_address, network, erc20_token, tab_ttl
+            )
+            rem_tab_id = _parse_u256_like(rem_tab.get("tabId"), field="tabId")
+            rem_req_id = _parse_u256_like(
+                rem_tab.get("nextReqId", rem_tab.get("next_req_id", "0x0")),
+                field="nextReqId",
+            )
+        else:
+            rem_tab_id = await recipient.recipient.create_tab(
+                payer_address, recipient_address, erc20_token, tab_ttl
+            )
+            rem_latest_before = await recipient.recipient.get_latest_guarantee(rem_tab_id)
+            rem_req_id = (
+                rem_latest_before.req_id + 1 if rem_latest_before is not None else 0
+            )
         print(f"[e2e] rem_tab_id: {hex(rem_tab_id)}")
-        rem_latest_before = await recipient.recipient.get_latest_guarantee(rem_tab_id)
-        rem_req_id = (
-            rem_latest_before.req_id + 1 if rem_latest_before is not None else 0
-        )
 
         rem_timestamp = int(time.time())
         rem_claims = PaymentGuaranteeRequestClaims.new(
@@ -666,9 +933,22 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             erc20_token=erc20_token,
         )
         rem_sig = await payer.user.sign_payment(rem_claims, SigningScheme.EIP712)
-        rem_cert = await recipient.recipient.issue_payment_guarantee(
-            rem_claims, rem_sig.signature, rem_sig.scheme
-        )
+        if mode == "facilitator":
+            rem_cert = await _issue_v1_guarantee_via_facilitator_or_core(
+                recipient,
+                network,
+                recipient_address,
+                erc20_token,
+                guarantee_amount,
+                tab_ttl,
+                rem_claims,
+                rem_sig.signature,
+                rem_sig.scheme,
+            )
+        else:
+            rem_cert = await recipient.recipient.issue_payment_guarantee(
+                rem_claims, rem_sig.signature, rem_sig.scheme
+            )
         rem_decoded = recipient.recipient.verify_payment_guarantee(rem_cert)
         assert rem_decoded.tab_id == rem_tab_id
         assert rem_decoded.total_amount == guarantee_amount
@@ -677,7 +957,10 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             payer,
             payer_address,
             erc20_token,
-            lambda b: b.total == deposit_amount and b.locked >= rem_decoded.amount,
+            lambda b: (
+                b.total >= deposit_balance.total - paid_decoded.amount
+                and b.locked >= rem_decoded.amount
+            ),
             timeout_ms=payment_sync_timeout_ms,
         )
 
@@ -836,6 +1119,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
         await Client.new(_make_config(payer_key)) as payer,
         await Client.new(_make_config(recipient_key)) as recipient,
     ):
+        mode = _resolve_e2e_mode()
         await _login_if_enabled(payer)
         await _login_if_enabled(recipient)
 
@@ -844,6 +1128,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
 
         payer_address = payer._signer.address
         recipient_address = recipient._signer.address
+        network = _caip2_network(payer)
 
         validation_registry = _env(
             "VALIDATION_REGISTRY",
@@ -887,6 +1172,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
         print(f"\n[e2e-v2] payer:     {payer_address}")
         print(f"[e2e-v2] recipient: {recipient_address}")
         print(f"[e2e-v2] rpc:       {_env('4MICA_RPC_URL', _DEFAULT_CORE_RPC_URL)}")
+        print(f"[e2e-v2] mode:      {mode}")
         print(f"[e2e-v2] token:     {erc20_token} ({token.symbol})")
         print(f"[e2e-v2] amount:    {_format_units(v2_amount, decimals)}")
         print(f"[e2e-v2] registry:  {validation_registry}")
@@ -919,12 +1205,22 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
         # 2. Create tab
         # ------------------------------------------------------------------
         print("[e2e-v2] Step 2: create tab")
-        tab_id = await recipient.recipient.create_tab(
-            payer_address, recipient_address, erc20_token, tab_ttl
-        )
+        if mode == "facilitator":
+            tab = await _facilitator_open_tab(
+                payer_address, recipient_address, network, erc20_token, tab_ttl
+            )
+            tab_id = _parse_u256_like(tab.get("tabId"), field="tabId")
+            req_id = _parse_u256_like(
+                tab.get("nextReqId", tab.get("next_req_id", "0x0")),
+                field="nextReqId",
+            )
+        else:
+            tab_id = await recipient.recipient.create_tab(
+                payer_address, recipient_address, erc20_token, tab_ttl
+            )
+            latest_before = await recipient.recipient.get_latest_guarantee(tab_id)
+            req_id = latest_before.req_id + 1 if latest_before is not None else 0
         print(f"[e2e-v2] tab_id: {hex(tab_id)}")
-        latest_before = await recipient.recipient.get_latest_guarantee(tab_id)
-        req_id = latest_before.req_id + 1 if latest_before is not None else 0
 
         # ------------------------------------------------------------------
         # 3. Build V2 claims (two-step hash computation)
@@ -988,9 +1284,35 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
         # 5. Issue V2 guarantee
         # ------------------------------------------------------------------
         print("[e2e-v2] Step 5: issue V2 guarantee")
-        cert = await recipient.recipient.issue_payment_guarantee(
-            claims_v2, sig.signature, sig.scheme
-        )
+        if mode == "facilitator":
+            requirements_v2 = _build_v2_requirements(
+                network=network,
+                recipient_address=recipient_address,
+                asset_address=erc20_token,
+                amount=v2_amount,
+                ttl_seconds=tab_ttl,
+                validation_registry=validation_registry,
+                validator_address=validator_address,
+                validator_agent_id=validator_agent_id,
+                min_validation_score=min_score,
+                required_validation_tag=validation_tag,
+            )
+            envelope_v2 = {
+                "x402Version": 2,
+                "accepted": requirements_v2,
+                "payload": _build_payment_payload(
+                    claims_v2, sig.signature, sig.scheme
+                ),
+            }
+            verify_payload = await _facilitator_verify(2, envelope_v2, requirements_v2)
+            assert verify_payload.get("isValid") is True, verify_payload
+            settle_payload = await _facilitator_settle(2, envelope_v2, requirements_v2)
+            assert settle_payload.get("success") is True, settle_payload
+            cert = _bls_cert_from_facilitator(settle_payload)
+        else:
+            cert = await recipient.recipient.issue_payment_guarantee(
+                claims_v2, sig.signature, sig.scheme
+            )
         print(f"[e2e-v2] cert claims: {cert.claims[:20]}...")
 
         # ------------------------------------------------------------------

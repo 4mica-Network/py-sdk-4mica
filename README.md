@@ -2,8 +2,6 @@
 
 The official Python SDK for interacting with the 4Mica payment network.
 
-For V2 rollout and test execution, see `V2_VERIFICATION.md`.
-
 ## Overview
 
 This SDK provides:
