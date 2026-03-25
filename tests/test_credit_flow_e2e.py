@@ -81,12 +81,21 @@ from fourmica_sdk.validation import (
     compute_validation_subject_hash,
 )
 from fourmica_sdk.x402 import TabResponse
-from fourmica_x402.facilitator import FourMicaFacilitatorClient
-from x402.http import FacilitatorConfig
-from x402.schemas import PaymentPayload as X402PaymentPayloadV2
-from x402.schemas import PaymentRequirements as X402PaymentRequirementsV2
-from x402.schemas.v1 import PaymentPayloadV1 as X402PaymentPayloadV1
-from x402.schemas.v1 import PaymentRequirementsV1 as X402PaymentRequirementsV1
+
+try:
+    from fourmica_x402.facilitator import FourMicaFacilitatorClient
+    from x402.http import FacilitatorConfig
+    from x402.schemas import PaymentPayload as X402PaymentPayloadV2
+    from x402.schemas import PaymentRequirements as X402PaymentRequirementsV2
+    from x402.schemas.v1 import PaymentPayloadV1 as X402PaymentPayloadV1
+    from x402.schemas.v1 import PaymentRequirementsV1 as X402PaymentRequirementsV1
+except ImportError:
+    FourMicaFacilitatorClient = None  # type: ignore[assignment,misc]
+    FacilitatorConfig = None  # type: ignore[assignment,misc]
+    X402PaymentPayloadV2 = None  # type: ignore[assignment,misc]
+    X402PaymentRequirementsV2 = None  # type: ignore[assignment,misc]
+    X402PaymentPayloadV1 = None  # type: ignore[assignment,misc]
+    X402PaymentRequirementsV1 = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Feature flag
