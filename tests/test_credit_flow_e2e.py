@@ -140,9 +140,7 @@ def _resolve_e2e_mode() -> str:
         return _E2E_MODE
 
     if configured and configured != "prompt":
-        raise RuntimeError(
-            "4MICA_E2E_MODE must be one of: direct, facilitator, prompt"
-        )
+        raise RuntimeError("4MICA_E2E_MODE must be one of: direct, facilitator, prompt")
 
     if sys.stdin is not None and sys.stdin.isatty():
         response = (
@@ -448,14 +446,14 @@ async def _facilitator_settle_raw(
         ) from exc
     payload = response.json()
     if not isinstance(payload, dict):
-        raise RuntimeError(f"facilitator /settle returned non-object payload: {payload!r}")
+        raise RuntimeError(
+            f"facilitator /settle returned non-object payload: {payload!r}"
+        )
     return payload
 
 
 class _FacilitatorX402Flow(X402Flow):
-    def __init__(
-        self, signer, facilitator_client: FourMicaFacilitatorClient
-    ) -> None:
+    def __init__(self, signer, facilitator_client: FourMicaFacilitatorClient) -> None:
         super().__init__(signer)
         self._facilitator = facilitator_client
 
@@ -486,14 +484,18 @@ def _decode_payment_header(header: str) -> Dict[str, Any]:
     raw = base64.b64decode(header).decode("utf-8")
     payload = json.loads(raw)
     if not isinstance(payload, dict):
-        raise RuntimeError(f"decoded payment header must be an object, got: {payload!r}")
+        raise RuntimeError(
+            f"decoded payment header must be an object, got: {payload!r}"
+        )
     return payload
 
 
 def _claims_payload_from_envelope(envelope: Dict[str, Any]) -> Dict[str, Any]:
     payload = envelope.get("payload", {}).get("claims", {})
     if not isinstance(payload, dict):
-        raise RuntimeError(f"payment claims payload must be an object, got: {payload!r}")
+        raise RuntimeError(
+            f"payment claims payload must be an object, got: {payload!r}"
+        )
     return payload
 
 
@@ -750,7 +752,9 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
 
     mode = _resolve_e2e_mode()
     async with contextlib.AsyncExitStack() as stack:
-        payer = await stack.enter_async_context(await Client.new(_make_config(payer_key)))
+        payer = await stack.enter_async_context(
+            await Client.new(_make_config(payer_key))
+        )
         recipient = await stack.enter_async_context(
             await Client.new(_make_config(recipient_key))
         )
@@ -847,10 +851,12 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             )
             print("[e2e] Step 3: sign paid guarantee request")
             assert facilitator_flow is not None
-            paid_envelope, paid_claims, paid_signature = (
-                await _sign_v1_payment_with_facilitator(
-                    facilitator_flow, paid_requirements, payer_address
-                )
+            (
+                paid_envelope,
+                paid_claims,
+                paid_signature,
+            ) = await _sign_v1_payment_with_facilitator(
+                facilitator_flow, paid_requirements, payer_address
             )
             paid_tab_id = paid_claims.tab_id
             paid_req_id = paid_claims.req_id
@@ -1028,7 +1034,9 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             rem_tab_id = await recipient.recipient.create_tab(
                 payer_address, recipient_address, erc20_token, tab_ttl
             )
-            rem_latest_before = await recipient.recipient.get_latest_guarantee(rem_tab_id)
+            rem_latest_before = await recipient.recipient.get_latest_guarantee(
+                rem_tab_id
+            )
             rem_req_id = (
                 rem_latest_before.req_id + 1 if rem_latest_before is not None else 0
             )
@@ -1224,7 +1232,9 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
 
     mode = _resolve_e2e_mode()
     async with contextlib.AsyncExitStack() as stack:
-        payer = await stack.enter_async_context(await Client.new(_make_config(payer_key)))
+        payer = await stack.enter_async_context(
+            await Client.new(_make_config(payer_key))
+        )
         recipient = await stack.enter_async_context(
             await Client.new(_make_config(recipient_key))
         )
@@ -1345,13 +1355,15 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
             )
             assert facilitator_flow is not None
             print("[e2e-v2] Step 3: build and sign V2 claims via SDK")
-            envelope_v2, claims_v2, signed_v2_signature = (
-                await _sign_v2_payment_with_facilitator(
-                    facilitator_flow,
-                    payment_required_v2,
-                    requirements_v2,
-                    payer_address,
-                )
+            (
+                envelope_v2,
+                claims_v2,
+                signed_v2_signature,
+            ) = await _sign_v2_payment_with_facilitator(
+                facilitator_flow,
+                payment_required_v2,
+                requirements_v2,
+                payer_address,
             )
             tab_id = claims_v2.tab_id
             req_id = claims_v2.req_id
