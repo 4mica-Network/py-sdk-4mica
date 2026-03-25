@@ -30,6 +30,14 @@ async def main() -> None:
         print("REQ_ID=", req_id)
         print("AMOUNT_WEI=", AMOUNT_WEI)
         print("ASSET_ADDRESS=", asset_address)
+        print(
+            "ACCEPTED_GUARANTEE_VERSIONS=",
+            recipient_client.params.accepted_guarantee_versions_or_default(),
+        )
+        print(
+            "TRUSTED_VALIDATION_REGISTRIES=",
+            recipient_client.params.trusted_validation_registries,
+        )
     finally:
         await recipient_client.aclose()
 

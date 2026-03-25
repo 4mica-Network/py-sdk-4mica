@@ -105,13 +105,25 @@ class X402Error(FourMicaError):
     """Raised for X402 flow issues (invalid scheme, settlement errors, etc.)."""
 
 
-class CreateTabError(RpcError):
+class CreateTabError(FourMicaError):
     """Raised when creating payment tabs fails."""
 
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
-class IssuePaymentGuaranteeError(RpcError):
+
+class IssuePaymentGuaranteeError(FourMicaError):
     """Raised when issuing payment guarantees fails."""
 
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
-class RecipientQueryError(RpcError):
+
+class RecipientQueryError(FourMicaError):
     """Raised when recipient queries fail."""
+
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code

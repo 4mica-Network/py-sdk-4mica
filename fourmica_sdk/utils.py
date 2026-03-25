@@ -33,6 +33,17 @@ def normalize_address(raw: str) -> str:
     return to_checksum_address(raw)
 
 
+def normalize_bytes32_hex(raw: str) -> str:
+    if not isinstance(raw, str):
+        raise ValidationError(f"invalid bytes32 value type: {type(raw)}")
+    value = raw.strip()
+    if value.startswith("0x") or value.startswith("0X"):
+        value = value[2:]
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        raise ValidationError(f"invalid bytes32 hex: {raw}")
+    return "0x" + value.lower()
+
+
 def parse_u256(value: Union[int, str]) -> int:
     if isinstance(value, int):
         if value < 0:

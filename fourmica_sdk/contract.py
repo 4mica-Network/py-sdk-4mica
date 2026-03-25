@@ -115,7 +115,12 @@ class ContractGateway:
                 raise ContractError("SignedTransaction missing raw_transaction")
             tx_hash = await self.w3.eth.send_raw_transaction(raw_tx)
             receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash)
-            return dict(receipt)
+            receipt_dict = dict(receipt)
+            status = receipt_dict.get("status")
+            if status in (0, "0x0", False):
+                tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+                raise ContractError(f"transaction reverted: {tx_hash_hex}")
+            return receipt_dict
         except Exception as exc:
             raise ContractError(str(exc)) from exc
 
@@ -213,6 +218,30 @@ class ContractGateway:
             "paid": parse_u256(paid),
             "remunerated": bool(remunerated),
             "asset": to_checksum_address(asset),
+        }
+
+    async def get_guarantee_version_config(self, version: int) -> Dict[str, Any]:
+        try:
+            result = await self.contract.functions.getGuaranteeVersionConfig(
+                int(version)
+            ).call()
+        except Exception as exc:
+            raise ContractError(str(exc)) from exc
+
+        if isinstance(result, dict):
+            domain = result.get("domainSeparator")
+            decoder = result.get("decoder")
+            enabled = result.get("enabled")
+        else:
+            domain = result[1]
+            decoder = result[2]
+            enabled = result[3]
+
+        domain_bytes = bytes(domain)
+        return {
+            "domain_separator": domain_bytes,
+            "decoder": normalize_address(decoder),
+            "enabled": bool(enabled),
         }
 
     async def pay_tab_eth(

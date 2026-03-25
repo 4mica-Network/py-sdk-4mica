@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Type
+from typing import Dict, List, Optional, Type, Union
 
 from .auth import AuthClient, AuthSession, AuthTokens
 from .bls_utils import signature_to_words, verify_bls_signature
@@ -14,7 +14,6 @@ from .errors import (
     RecipientQueryError,
     RemunerateError,
     RpcError,
-    SigningError,
     VerifyGuaranteeError,
     VerificationError,
 )
@@ -26,6 +25,7 @@ from .models import (
     GuaranteeInfo,
     PaymentGuaranteeClaims,
     PaymentGuaranteeRequestClaims,
+    PaymentGuaranteeRequestClaimsV2,
     PaymentSignature,
     PendingRemunerationInfo,
     RecipientPaymentInfo,
@@ -36,21 +36,7 @@ from .models import (
 )
 from .rpc import RpcProxy
 from .signing import CorePublicParameters, PaymentSigner
-from .utils import ValidationError, normalize_address, parse_u256, serialize_u256
-
-
-def _tab_status_from_rpc(status: dict) -> TabPaymentStatus:
-    """Convert a payment status payload from the gateway into the public model."""
-    paid = status.get("paid") if "paid" in status else status.get("paidAmount")
-    remunerated = (
-        status.get("remunerated") if "remunerated" in status else status.get("paidOut")
-    )
-    asset = status.get("asset") if "asset" in status else status.get("assetAddress")
-    return TabPaymentStatus(
-        paid=parse_u256(paid),
-        remunerated=bool(remunerated),
-        asset=asset,
-    )
+from .utils import ValidationError, normalize_address, parse_u256
 
 
 class Client:
@@ -63,6 +49,7 @@ class Client:
         params: CorePublicParameters,
         gateway: ContractGateway,
         guarantee_domain: bytes,
+        guarantee_domains: Optional[Dict[int, bytes]],
         signer: PaymentSigner,
         auth_session: Optional[AuthSession] = None,
     ) -> None:
@@ -71,6 +58,7 @@ class Client:
         self.params = params
         self.gateway = gateway
         self.guarantee_domain = guarantee_domain
+        self.guarantee_domains = dict(guarantee_domains or {})
         self._signer = signer
         self._auth_session = auth_session
         self.user = UserClient(self)
@@ -96,7 +84,9 @@ class Client:
         cls._validate_operator_public_key(params.public_key)
         gateway = cls._build_gateway(cfg, params)
         await cls._validate_chain_id(gateway, params.chain_id)
-        guarantee_domain = await cls._fetch_guarantee_domain(gateway)
+        guarantee_domain, guarantee_domains = await cls._fetch_guarantee_metadata(
+            gateway, params
+        )
         signer_source = cfg.evm_signer or cfg.wallet_private_key
         if signer_source is None:
             raise ClientInitializationError("missing evm_signer or wallet_private_key")
@@ -107,6 +97,7 @@ class Client:
             params,
             gateway,
             guarantee_domain,
+            guarantee_domains,
             signer,
             auth_session=auth_session,
         )
@@ -140,12 +131,45 @@ class Client:
             raise ClientInitializationError(str(exc)) from exc
 
     @staticmethod
-    async def _fetch_guarantee_domain(gateway: ContractGateway) -> bytes:
+    async def _fetch_guarantee_metadata(
+        gateway: ContractGateway, params: CorePublicParameters
+    ) -> tuple[bytes, Dict[int, bytes]]:
         try:
-            return await gateway.contract.functions.guaranteeDomainSeparator().call()
+            accepted_versions = params.accepted_guarantee_versions_or_default()
+            guarantee_domains: Dict[int, bytes] = {}
+
+            for version in accepted_versions:
+                config = await gateway.get_guarantee_version_config(version)
+                if config["enabled"]:
+                    guarantee_domains[int(version)] = bytes(config["domain_separator"])
+
+            if params.max_accepted_guarantee_version in guarantee_domains:
+                active_guarantee_domain = guarantee_domains[
+                    params.max_accepted_guarantee_version
+                ]
+            else:
+                active_guarantee_domain = (
+                    await gateway.contract.functions.guaranteeDomainSeparator().call()
+                )
+
+            if params.active_guarantee_domain_separator:
+                expected = bytes.fromhex(
+                    params.active_guarantee_domain_separator.removeprefix("0x")
+                )
+                if active_guarantee_domain != expected:
+                    raise ClientInitializationError(
+                        "guarantee domain mismatch between core metadata and contract"
+                    )
+
+            if 1 not in guarantee_domains:
+                guarantee_domains[1] = bytes(
+                    await gateway.contract.functions.guaranteeDomainSeparator().call()
+                )
+
+            return bytes(active_guarantee_domain), guarantee_domains
         except Exception as exc:
             raise ClientInitializationError(
-                f"failed to fetch guarantee domain: {exc}"
+                f"failed to fetch guarantee metadata: {exc}"
             ) from exc
 
     @staticmethod
@@ -182,6 +206,10 @@ class UserClient:
     def guarantee_domain(self) -> bytes:
         return self.client.guarantee_domain
 
+    @property
+    def guarantee_domains(self) -> Dict[int, bytes]:
+        return self.client.guarantee_domains
+
     async def approve_erc20(self, token: str, amount: int) -> dict:
         return await self.client.gateway.approve_erc20(token, amount)
 
@@ -202,18 +230,16 @@ class UserClient:
 
     async def get_tab_payment_status(self, tab_id: int) -> TabPaymentStatus:
         status = await self.client.gateway.get_payment_status(tab_id)
-        return _tab_status_from_rpc(status)
+        return TabPaymentStatus.from_rpc(status)
 
     async def sign_payment(
         self,
-        claims: PaymentGuaranteeRequestClaims,
+        claims: Union[PaymentGuaranteeRequestClaims, PaymentGuaranteeRequestClaimsV2],
         scheme: SigningScheme = SigningScheme.EIP712,
     ) -> PaymentSignature:
-        try:
-            params = await self.client.rpc.get_public_params()
-        except RpcError as exc:
-            raise SigningError(str(exc)) from exc
-        return await self.client._signer.sign_request(params, claims, scheme)
+        return await self.client._signer.sign_request(
+            self.client.params, claims, scheme
+        )
 
     async def pay_tab(
         self,
@@ -249,11 +275,15 @@ class RecipientClient:
 
     @property
     def _recipient_address(self) -> str:
-        return normalize_address(self.client.gateway.account.address)
+        return normalize_address(self.client._signer.address)
 
     @property
     def guarantee_domain(self) -> bytes:
         return self.client.guarantee_domain
+
+    @property
+    def guarantee_domains(self) -> Dict[int, bytes]:
+        return self.client.guarantee_domains
 
     def _check_signer(self, expected: str, error_cls: Type[Exception]) -> None:
         try:
@@ -285,26 +315,17 @@ class RecipientClient:
 
     async def get_tab_payment_status(self, tab_id: int) -> TabPaymentStatus:
         status = await self.client.gateway.get_payment_status(tab_id)
-        return _tab_status_from_rpc(status)
+        return TabPaymentStatus.from_rpc(status)
 
     async def issue_payment_guarantee(
         self,
-        claims: PaymentGuaranteeRequestClaims,
+        claims: Union[PaymentGuaranteeRequestClaims, PaymentGuaranteeRequestClaimsV2],
         signature: str,
         scheme: SigningScheme,
     ) -> BLSCert:
         self._check_signer(claims.recipient_address, IssuePaymentGuaranteeError)
         payload = {
-            "claims": {
-                "version": "v1",
-                "user_address": claims.user_address,
-                "recipient_address": claims.recipient_address,
-                "tab_id": serialize_u256(claims.tab_id),
-                "req_id": serialize_u256(claims.req_id),
-                "amount": serialize_u256(claims.amount),
-                "asset_address": claims.asset_address,
-                "timestamp": int(claims.timestamp),
-            },
+            "claims": claims.to_payload(),
             "signature": signature,
             "scheme": scheme.value,
         }
@@ -324,16 +345,21 @@ class RecipientClient:
                 "invalid BLS certificate claims encoding"
             ) from exc
 
-        public_key = getattr(self.client, "params", None)
-        if public_key is None or not hasattr(public_key, "public_key"):
-            raise VerifyGuaranteeError("missing operator public key for verification")
-        operator_public_key = bytes(public_key.public_key)
+        operator_public_key = bytes(self.client.params.public_key)
 
         if not verify_bls_signature(operator_public_key, claims_bytes, cert.signature):
             raise VerifyGuaranteeError("certificate signature mismatch")
 
         claims = decode_guarantee_claims(claims_bytes)
-        if claims.domain != self.guarantee_domain:
+        expected_domain = self.guarantee_domains.get(claims.version)
+        if expected_domain is None:
+            if claims.version == 1:
+                expected_domain = self.guarantee_domain
+            else:
+                raise VerifyGuaranteeError(
+                    f"unsupported guarantee claims version: {claims.version}"
+                )
+        if claims.domain != expected_domain:
             raise VerifyGuaranteeError("guarantee domain mismatch")
         return claims
 

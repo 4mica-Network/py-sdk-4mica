@@ -23,6 +23,11 @@ async def test_rpc_proxy_get_public_params_round_trip():
         "eip712_name": "4mica",
         "eip712_version": "1",
         "chain_id": 1337,
+        "max_accepted_guarantee_version": 2,
+        "accepted_guarantee_versions": [1, 2],
+        "active_guarantee_domain_separator": "0x" + "ab" * 32,
+        "trusted_validation_registries": ["0x0000000000000000000000000000000000000011"],
+        "validation_hash_canonicalization_version": "4MICA_VALIDATION_REQUEST_V1",
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -35,6 +40,19 @@ async def test_rpc_proxy_get_public_params_round_trip():
         assert got.chain_id == 1337
         assert got.contract_address == params["contract_address"]
         assert got.ethereum_http_rpc_url == params["ethereum_http_rpc_url"]
+        assert got.max_accepted_guarantee_version == 2
+        assert got.accepted_guarantee_versions == [1, 2]
+        assert (
+            got.active_guarantee_domain_separator
+            == params["active_guarantee_domain_separator"]
+        )
+        assert got.trusted_validation_registries == [
+            "0x0000000000000000000000000000000000000011"
+        ]
+        assert (
+            got.validation_hash_canonicalization_version
+            == "4MICA_VALIDATION_REQUEST_V1"
+        )
     finally:
         await proxy.aclose()
 
