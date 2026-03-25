@@ -240,14 +240,13 @@ async def test_sign_payment_v2_builds_header_and_payload():
     flow = StubX402Flow(StubSigner())
     accepted = PaymentRequirementsV2(
         scheme="4mica+pay",
-        network="testnet",
+        network="eip155:1",
         amount="5",
         pay_to="0x0000000000000000000000000000000000000003",
         asset="0x0000000000000000000000000000000000000000",
         extra={
             "tabEndpoint": "https://example.com",
             "validationRegistryAddress": "0x0000000000000000000000000000000000000011",
-            "validationChainId": 1,
             "validatorAddress": "0x0000000000000000000000000000000000000022",
             "validatorAgentId": "0x7",
             "minValidationScore": 80,
@@ -299,7 +298,7 @@ async def test_sign_payment_v2_rejects_missing_validation_fields():
     flow = StubX402Flow(StubSigner())
     accepted = PaymentRequirementsV2(
         scheme="4mica+pay",
-        network="testnet",
+        network="eip155:1",
         amount="5",
         pay_to="0x0000000000000000000000000000000000000003",
         asset="0x0000000000000000000000000000000000000000",
@@ -316,6 +315,44 @@ async def test_sign_payment_v2_rejects_missing_validation_fields():
     )
 
     with pytest.raises(X402Error, match="missing V2 validation fields"):
+        await flow.sign_payment_v2(
+            payment_required,
+            accepted,
+            "0x0000000000000000000000000000000000000001",
+        )
+
+
+@pytest.mark.asyncio
+async def test_sign_payment_v2_rejects_mismatched_validation_chain_id():
+    flow = StubX402Flow(StubSigner())
+    accepted = PaymentRequirementsV2(
+        scheme="4mica+pay",
+        network="eip155:1",
+        amount="5",
+        pay_to="0x0000000000000000000000000000000000000003",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={
+            "tabEndpoint": "https://example.com",
+            "validationRegistryAddress": "0x0000000000000000000000000000000000000011",
+            "validationChainId": 2,
+            "validatorAddress": "0x0000000000000000000000000000000000000022",
+            "validatorAgentId": "0x7",
+            "minValidationScore": 80,
+        },
+    )
+    payment_required = X402PaymentRequired(
+        x402_version=2,
+        resource=X402ResourceInfo(
+            url="https://example.com/data",
+            description="example",
+            mime_type="application/json",
+        ),
+        accepts=[accepted],
+    )
+
+    with pytest.raises(
+        X402Error, match="validationChainId does not match paymentRequirements.network"
+    ):
         await flow.sign_payment_v2(
             payment_required,
             accepted,

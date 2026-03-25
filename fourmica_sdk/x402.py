@@ -559,8 +559,6 @@ class X402Flow:
         missing = []
         if extra.validation_registry_address is None:
             missing.append("validationRegistryAddress")
-        if extra.validation_chain_id is None:
-            missing.append("validationChainId")
         if extra.validator_address is None:
             missing.append("validatorAddress")
         if extra.validator_agent_id is None:
@@ -572,6 +570,18 @@ class X402Flow:
                 f"payment requirements missing V2 validation fields: {', '.join(missing)}"
             )
 
+        expected_validation_chain_id = self._parse_validation_chain_id_from_network(
+            requirements.network
+        )
+        if (
+            extra.validation_chain_id is not None
+            and extra.validation_chain_id != expected_validation_chain_id
+        ):
+            raise X402Error(
+                "validationChainId does not match paymentRequirements.network: "
+                f"{extra.validation_chain_id} != {expected_validation_chain_id}"
+            )
+
         # Compute hashes in order: subject first (depends on base claims),
         # then request (depends on subject hash + policy inputs).
         # validation_request_hash is NOT an input to its own computation.
@@ -579,7 +589,7 @@ class X402Flow:
         policy_inputs = PaymentGuaranteeValidationPolicyV2(
             validation_registry_address=extra.validation_registry_address,
             validation_request_hash="0x" + "00" * 32,  # placeholder, not used in hash
-            validation_chain_id=extra.validation_chain_id,
+            validation_chain_id=expected_validation_chain_id,
             validator_address=extra.validator_address,
             validator_agent_id=extra.validator_agent_id,
             min_validation_score=extra.min_validation_score,
@@ -605,6 +615,25 @@ class X402Flow:
             validation_subject_hash=validation_subject_hash,
             required_validation_tag=policy_inputs.required_validation_tag,
         )
+
+    @staticmethod
+    def _parse_validation_chain_id_from_network(network: str) -> int:
+        prefix, sep, value = network.partition(":")
+        if prefix != "eip155" or sep != ":" or not value:
+            raise X402Error(
+                f"invalid network '{network}': expected CAIP-2 eip155:<chainId>"
+            )
+        try:
+            chain_id = int(value, 10)
+        except ValueError as exc:
+            raise X402Error(
+                f"invalid network '{network}': chain id must be a decimal integer"
+            ) from exc
+        if chain_id <= 0:
+            raise X402Error(
+                f"invalid network '{network}': chain id must be greater than zero"
+            )
+        return chain_id
 
     @staticmethod
     def _validate_scheme(scheme: str) -> None:

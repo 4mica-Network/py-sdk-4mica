@@ -17,6 +17,12 @@ This SDK provides:
 pip install sdk-4mica
 ```
 
+Latest major release:
+
+```bash
+pip install "sdk-4mica>=1.0.0"
+```
+
 Install BLS support for on-chain remuneration:
 
 ```bash
@@ -433,8 +439,10 @@ if __name__ == "__main__":
 ```
 
 For V2 x402 flows, include the following fields under `paymentRequirements.extra`:
-`validationRegistryAddress`, `validationChainId`, `validatorAddress`, `validatorAgentId`,
+`validationRegistryAddress`, `validatorAddress`, `validatorAgentId`,
 `minValidationScore`, and optional `requiredValidationTag`.
+`validationChainId` is optional; when omitted, the SDK derives the expected chain id from the
+CAIP-2 `network` value (for example, `eip155:1`).
 
 ## X402 Flow (HTTP 402)
 
@@ -599,7 +607,23 @@ Notes:
 Facilitators enforce that `scheme` / `network` match `/supported`, `payTo` matches
 `recipient_address` in the claims, and `asset` / `maxAmountRequired` equal the signed `amount`.
 For V2, `payload.claims.version` is `"v2"` and the validation policy fields are included in the
-same `claims` object.
+same `claims` object. The signed `validation_chain_id` is derived from `paymentRequirements.network`
+(`eip155:<chainId>`) and must match any optional `extra.validationChainId` value if provided.
+
+## Testing
+
+By default, `pytest` runs unit tests only:
+
+```bash
+./venv/bin/pytest -q
+```
+
+Integration tests are marked with `@pytest.mark.integration` and require a live core/auth service.
+Run them explicitly when the environment is available:
+
+```bash
+./venv/bin/pytest -q -m integration
+```
 
 ## End-to-end credit flow (x402)
 
