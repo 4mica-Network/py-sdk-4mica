@@ -60,6 +60,7 @@ def test_serialize_payment_claims_v2_shape():
         min_validation_score=80,
         validation_subject_hash=subject_hash,
         required_validation_tag="hard-finality",
+        job_hash="0x" + "11" * 32,
     )
     claims = PaymentGuaranteeRequestClaimsV2.new(
         user_address=partial.user_address,
@@ -77,6 +78,7 @@ def test_serialize_payment_claims_v2_shape():
         min_validation_score=partial.min_validation_score,
         validation_subject_hash=partial.validation_subject_hash,
         required_validation_tag=partial.required_validation_tag,
+        job_hash=partial.job_hash,
     )
 
     payload = claims.to_payload()
@@ -93,3 +95,4 @@ def test_serialize_payment_claims_v2_shape():
     assert payload["min_validation_score"] == 80
     assert payload["validation_subject_hash"] == claims.validation_subject_hash
     assert payload["required_validation_tag"] == "hard-finality"
+    assert payload["job_hash"] == claims.job_hash

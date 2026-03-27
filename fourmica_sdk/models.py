@@ -82,6 +82,7 @@ class PaymentGuaranteeValidationPolicyV2:
     min_validation_score: int
     validation_subject_hash: str
     required_validation_tag: str
+    job_hash: str
 
     def __post_init__(self) -> None:
         self.validation_registry_address = normalize_address(
@@ -103,6 +104,7 @@ class PaymentGuaranteeValidationPolicyV2:
             self.validation_subject_hash
         )
         self.required_validation_tag = str(self.required_validation_tag)
+        self.job_hash = normalize_bytes32_hex(self.job_hash)
 
 
 @dataclass
@@ -115,6 +117,7 @@ class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
     min_validation_score: int
     validation_subject_hash: str
     required_validation_tag: str
+    job_hash: str
 
     def __post_init__(self) -> None:
         self.user_address = normalize_address(self.user_address)
@@ -143,6 +146,7 @@ class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
             self.validation_subject_hash
         )
         self.required_validation_tag = str(self.required_validation_tag)
+        self.job_hash = normalize_bytes32_hex(self.job_hash)
 
     @classmethod
     def new(
@@ -162,6 +166,7 @@ class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
         min_validation_score: int,
         validation_subject_hash: str,
         required_validation_tag: str,
+        job_hash: str,
     ) -> "PaymentGuaranteeRequestClaimsV2":
         asset = erc20_token or "0x0000000000000000000000000000000000000000"
         return cls(
@@ -180,6 +185,7 @@ class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
             min_validation_score=int(min_validation_score),
             validation_subject_hash=normalize_bytes32_hex(validation_subject_hash),
             required_validation_tag=str(required_validation_tag),
+            job_hash=normalize_bytes32_hex(job_hash),
         )
 
     @functools.cached_property
@@ -193,6 +199,7 @@ class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
             min_validation_score=self.min_validation_score,
             validation_subject_hash=self.validation_subject_hash,
             required_validation_tag=self.required_validation_tag,
+            job_hash=self.job_hash,
         )
 
     def to_payload(self) -> Dict[str, Any]:
@@ -208,6 +215,7 @@ class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
                 "min_validation_score": int(self.min_validation_score),
                 "validation_subject_hash": self.validation_subject_hash,
                 "required_validation_tag": self.required_validation_tag,
+                "job_hash": self.job_hash,
             }
         )
         return payload

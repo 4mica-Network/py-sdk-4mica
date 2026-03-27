@@ -17,7 +17,13 @@ from .models import (
     PaymentSignature,
     SigningScheme,
 )
-from .utils import ValidationError, normalize_address, parse_u256, validate_url
+from .utils import (
+    ValidationError,
+    normalize_address,
+    normalize_bytes32_hex,
+    parse_u256,
+    validate_url,
+)
 from .validation import (
     compute_validation_request_hash,
     compute_validation_subject_hash,
@@ -178,6 +184,7 @@ class PaymentRequirementsExtra:
     validator_agent_id: Optional[int] = None
     min_validation_score: Optional[int] = None
     required_validation_tag: Optional[str] = None
+    job_hash: Optional[str] = None
 
     @classmethod
     def from_raw(cls, raw: Dict[str, Any]) -> "PaymentRequirementsExtra":
@@ -233,6 +240,13 @@ class PaymentRequirementsExtra:
         if required_validation_tag is not None:
             required_validation_tag = str(required_validation_tag)
 
+        job_hash = raw.get("jobHash")
+        if job_hash is not None:
+            try:
+                job_hash = normalize_bytes32_hex(str(job_hash))
+            except ValidationError as exc:
+                raise X402Error(f"invalid jobHash: {exc}") from exc
+
         return cls(
             tab_endpoint=tab_endpoint,
             validation_registry_address=validation_registry_address,
@@ -241,6 +255,7 @@ class PaymentRequirementsExtra:
             validator_agent_id=validator_agent_id,
             min_validation_score=min_validation_score,
             required_validation_tag=required_validation_tag,
+            job_hash=job_hash,
         )
 
 
@@ -565,6 +580,8 @@ class X402Flow:
             missing.append("validatorAgentId")
         if extra.min_validation_score is None:
             missing.append("minValidationScore")
+        if extra.job_hash is None:
+            missing.append("jobHash")
         if missing:
             raise X402Error(
                 f"payment requirements missing V2 validation fields: {', '.join(missing)}"
@@ -595,6 +612,7 @@ class X402Flow:
             min_validation_score=extra.min_validation_score,
             validation_subject_hash=validation_subject_hash,
             required_validation_tag=extra.required_validation_tag or "",
+            job_hash=extra.job_hash,
         )
         validation_request_hash = compute_validation_request_hash(policy_inputs)
 
@@ -614,6 +632,7 @@ class X402Flow:
             min_validation_score=policy_inputs.min_validation_score,
             validation_subject_hash=validation_subject_hash,
             required_validation_tag=policy_inputs.required_validation_tag,
+            job_hash=policy_inputs.job_hash,
         )
 
     @staticmethod

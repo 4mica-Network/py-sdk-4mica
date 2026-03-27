@@ -55,6 +55,7 @@ def test_encode_guarantee_v1_rejects_validation_policy():
             min_validation_score=80,
             validation_subject_hash="0x" + "cd" * 32,
             required_validation_tag="hard-finality",
+            job_hash="0x" + "11" * 32,
         ),
     )
 
@@ -83,6 +84,7 @@ def test_encode_decode_guarantee_v2_round_trip():
             min_validation_score=80,
             validation_subject_hash="0x" + "cd" * 32,
             required_validation_tag="hard-finality",
+            job_hash="0x" + "11" * 32,
         ),
     )
     encoded = encode_guarantee_claims(claims)
@@ -107,7 +109,7 @@ def test_decode_guarantee_v2_tuple_encoded_inner_payload():
     inner = abi_encode(
         [
             "(bytes32,uint256,uint256,address,address,uint256,uint256,address,"
-            "uint64,uint64,address,bytes32,uint64,address,uint256,uint8,bytes32,string)"
+            "uint64,uint64,address,bytes32,uint64,address,uint256,uint8,bytes32,string,bytes32)"
         ],
         [
             (
@@ -129,6 +131,7 @@ def test_decode_guarantee_v2_tuple_encoded_inner_payload():
                 80,
                 b"\xcd" * 32,
                 "hard-finality",
+                b"\x11" * 32,
             )
         ],
     )
@@ -237,6 +240,7 @@ def test_verify_v2_guarantee_uses_version_specific_domain():
             min_validation_score=80,
             validation_subject_hash="0x" + "cd" * 32,
             required_validation_tag="hard-finality",
+            job_hash="0x" + "11" * 32,
         ),
     )
     claims_bytes = encode_guarantee_claims(claims)

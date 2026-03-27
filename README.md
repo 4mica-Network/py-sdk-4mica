@@ -309,6 +309,7 @@ VALIDATOR_ADDRESS = os.getenv("VALIDATOR_ADDRESS")
 VALIDATOR_AGENT_ID = os.getenv("VALIDATOR_AGENT_ID")
 MIN_VALIDATION_SCORE = os.getenv("MIN_VALIDATION_SCORE")
 REQUIRED_VALIDATION_TAG = os.getenv("REQUIRED_VALIDATION_TAG", "")
+JOB_HASH = os.getenv("JOB_HASH")
 
 
 def build_claims(
@@ -335,6 +336,7 @@ def build_claims(
             VALIDATOR_ADDRESS,
             VALIDATOR_AGENT_ID,
             MIN_VALIDATION_SCORE,
+            JOB_HASH,
         )
     )
     if not wants_v2:
@@ -362,6 +364,7 @@ def build_claims(
         min_validation_score=int(MIN_VALIDATION_SCORE, 0),
         validation_subject_hash=validation_subject_hash,
         required_validation_tag=REQUIRED_VALIDATION_TAG,
+        job_hash=JOB_HASH,
     )
     return PaymentGuaranteeRequestClaimsV2.new(
         user_address=partial_claims.user_address,
@@ -379,6 +382,7 @@ def build_claims(
         min_validation_score=partial_claims.min_validation_score,
         validation_subject_hash=partial_claims.validation_subject_hash,
         required_validation_tag=partial_claims.required_validation_tag,
+        job_hash=partial_claims.job_hash,
     )
 
 
@@ -440,7 +444,7 @@ if __name__ == "__main__":
 
 For V2 x402 flows, include the following fields under `paymentRequirements.extra`:
 `validationRegistryAddress`, `validatorAddress`, `validatorAgentId`,
-`minValidationScore`, and optional `requiredValidationTag`.
+`minValidationScore`, `jobHash`, and optional `requiredValidationTag`.
 `validationChainId` is optional; when omitted, the SDK derives the expected chain id from the
 CAIP-2 `network` value (for example, `eip155:1`).
 

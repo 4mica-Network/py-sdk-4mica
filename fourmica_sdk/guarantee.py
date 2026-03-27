@@ -42,10 +42,11 @@ _CLAIMS_TYPES_V2 = [
     "uint8",  # min_validation_score
     "bytes32",  # validation_subject_hash
     "string",  # required_validation_tag
+    "bytes32",  # job_hash
 ]
 _CLAIMS_TYPE_V2_TUPLE = (
     "(bytes32,uint256,uint256,address,address,uint256,uint256,address,"
-    "uint64,uint64,address,bytes32,uint64,address,uint256,uint8,bytes32,string)"
+    "uint64,uint64,address,bytes32,uint64,address,uint256,uint8,bytes32,string,bytes32)"
 )
 
 _CLAIMS_ENCODED_BYTES_V1 = 32 * len(_CLAIMS_TYPES)
@@ -116,6 +117,7 @@ def encode_guarantee_claims(claims: PaymentGuaranteeClaims) -> bytes:
                     int(policy.min_validation_score),
                     _ensure_bytes32(policy.validation_subject_hash),
                     policy.required_validation_tag,
+                    _ensure_bytes32(policy.job_hash),
                 )
             ],
         )
@@ -219,6 +221,7 @@ def _build_decoded_v2_claims(decoded) -> PaymentGuaranteeClaims:
         min_validation_score,
         validation_subject_hash,
         required_validation_tag,
+        job_hash,
     ) = decoded
     if int(claims_version) != 2:
         raise VerificationError(
@@ -245,5 +248,6 @@ def _build_decoded_v2_claims(decoded) -> PaymentGuaranteeClaims:
             min_validation_score=int(min_validation_score),
             validation_subject_hash="0x" + bytes(validation_subject_hash).hex(),
             required_validation_tag=required_validation_tag,
+            job_hash="0x" + bytes(job_hash).hex(),
         ),
     )

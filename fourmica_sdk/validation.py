@@ -13,7 +13,8 @@ from .models import (
 from .utils import normalize_bytes32_hex
 
 VALIDATION_SUBJECT_BINDING_DOMAIN_V1 = "4MICA_VALIDATION_SUBJECT_V1"
-VALIDATION_REQUEST_BINDING_DOMAIN_V1 = "4MICA_VALIDATION_REQUEST_V1"
+VALIDATION_REQUEST_BINDING_DOMAIN_V2 = "4MICA_VALIDATION_REQUEST_V2"
+VALIDATION_REQUEST_BINDING_DOMAIN_V1 = VALIDATION_REQUEST_BINDING_DOMAIN_V2
 
 
 def _keccak_hex(data: bytes) -> str:
@@ -69,6 +70,7 @@ def compute_validation_request_hash(
             "bytes32",
             "uint8",
             "bytes32",
+            "bytes32",
         ],
         [
             binding_domain,
@@ -81,6 +83,7 @@ def compute_validation_request_hash(
             ),
             int(policy.min_validation_score),
             tag_hash,
+            bytes.fromhex(normalize_bytes32_hex(policy.job_hash).removeprefix("0x")),
         ],
     )
     return _keccak_hex(payload)
@@ -88,6 +91,7 @@ def compute_validation_request_hash(
 
 __all__ = [
     "VALIDATION_REQUEST_BINDING_DOMAIN_V1",
+    "VALIDATION_REQUEST_BINDING_DOMAIN_V2",
     "VALIDATION_SUBJECT_BINDING_DOMAIN_V1",
     "compute_validation_request_hash",
     "compute_validation_subject_hash",

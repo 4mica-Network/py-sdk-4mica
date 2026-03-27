@@ -108,6 +108,7 @@ def test_payment_requirements_extra_parses_v2_validation_fields():
             "validatorAgentId": "0x7",
             "minValidationScore": 80,
             "requiredValidationTag": "hard-finality",
+            "jobHash": "0x" + "11" * 32,
         }
     )
     assert extra.tab_endpoint == "https://example.com/tab"
@@ -120,6 +121,7 @@ def test_payment_requirements_extra_parses_v2_validation_fields():
     assert extra.validator_agent_id == 7
     assert extra.min_validation_score == 80
     assert extra.required_validation_tag == "hard-finality"
+    assert extra.job_hash == "0x" + "11" * 32
 
 
 def test_payment_requirements_extra_parses_v2_fields_without_tab_endpoint():
@@ -131,6 +133,7 @@ def test_payment_requirements_extra_parses_v2_fields_without_tab_endpoint():
             "validatorAgentId": "0x7",
             "minValidationScore": 80,
             "requiredValidationTag": "hard-finality",
+            "jobHash": "0x" + "11" * 32,
         }
     )
     assert extra.tab_endpoint is None
@@ -143,6 +146,7 @@ def test_payment_requirements_extra_parses_v2_fields_without_tab_endpoint():
     assert extra.validator_agent_id == 7
     assert extra.min_validation_score == 80
     assert extra.required_validation_tag == "hard-finality"
+    assert extra.job_hash == "0x" + "11" * 32
 
 
 def test_payment_requirements_extra_rejects_invalid_validator_agent_id():
@@ -251,6 +255,7 @@ async def test_sign_payment_v2_builds_header_and_payload():
             "validatorAgentId": "0x7",
             "minValidationScore": 80,
             "requiredValidationTag": "hard-finality",
+            "jobHash": "0x" + "11" * 32,
         },
     )
     payment_required = X402PaymentRequired(
@@ -287,6 +292,7 @@ async def test_sign_payment_v2_builds_header_and_payload():
     assert signed.payload["claims"]["validator_agent_id"] == "0x7"
     assert signed.payload["claims"]["min_validation_score"] == 80
     assert signed.payload["claims"]["required_validation_tag"] == "hard-finality"
+    assert signed.payload["claims"]["job_hash"] == "0x" + "11" * 32
     assert isinstance(signed.payload["claims"]["validation_request_hash"], str)
     assert isinstance(signed.payload["claims"]["validation_subject_hash"], str)
     assert signed.payload["claims"]["validation_request_hash"] != "0x" + "00" * 32
@@ -338,6 +344,7 @@ async def test_sign_payment_v2_rejects_mismatched_validation_chain_id():
             "validatorAddress": "0x0000000000000000000000000000000000000022",
             "validatorAgentId": "0x7",
             "minValidationScore": 80,
+            "jobHash": "0x" + "11" * 32,
         },
     )
     payment_required = X402PaymentRequired(
