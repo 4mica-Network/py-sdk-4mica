@@ -267,3 +267,45 @@ def test_verify_v2_guarantee_uses_version_specific_domain():
 
     decoded = recipient.verify_payment_guarantee(cert)
     assert decoded.version == 2
+
+
+@pytest.mark.asyncio
+async def test_create_tab_includes_guarantee_version():
+    class DummyRpc:
+        def __init__(self) -> None:
+            self.body = None
+
+        async def create_payment_tab(self, body):
+            self.body = body
+            return {"id": "0x2"}
+
+    rpc = DummyRpc()
+    fake_client = SimpleNamespace(
+        rpc=rpc,
+        _signer=SimpleNamespace(
+            address="0x0000000000000000000000000000000000000002"
+        ),
+        guarantee_domain=b"\x00" * 32,
+        guarantee_domains={1: b"\x00" * 32},
+        params=SimpleNamespace(public_key=b"\x11" * 48),
+        gateway=None,
+    )
+
+    recipient = RecipientClient(fake_client)  # type: ignore[arg-type]
+
+    tab_id = await recipient.create_tab(
+        user_address="0x0000000000000000000000000000000000000001",
+        recipient_address="0x0000000000000000000000000000000000000002",
+        erc20_token="0x0000000000000000000000000000000000000003",
+        ttl=60,
+        guarantee_version=2,
+    )
+
+    assert tab_id == 2
+    assert rpc.body == {
+        "user_address": "0x0000000000000000000000000000000000000001",
+        "recipient_address": "0x0000000000000000000000000000000000000002",
+        "erc20_token": "0x0000000000000000000000000000000000000003",
+        "ttl": 60,
+        "guarantee_version": 2,
+    }

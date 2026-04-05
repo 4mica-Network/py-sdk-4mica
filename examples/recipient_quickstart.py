@@ -7,6 +7,7 @@ from fourmica_sdk import Client, ConfigBuilder
 RECIPIENT_KEY = os.environ["RECIPIENT_KEY"]
 USER_ADDRESS = os.environ["USER_ADDRESS"]
 AMOUNT_WEI = int(os.getenv("AMOUNT_WEI", "100000000000000000"), 0)
+GUARANTEE_VERSION = int(os.getenv("GUARANTEE_VERSION", "1"), 10)
 
 
 async def main() -> None:
@@ -20,6 +21,7 @@ async def main() -> None:
             recipient_address=recipient_address,
             erc20_token=None,
             ttl=None,
+            guarantee_version=GUARANTEE_VERSION,
         )
         latest = await recipient_client.recipient.get_latest_guarantee(tab_id)
         req_id = latest.req_id + 1 if latest else 0
@@ -38,6 +40,7 @@ async def main() -> None:
             "TRUSTED_VALIDATION_REGISTRIES=",
             recipient_client.params.trusted_validation_registries,
         )
+        print("GUARANTEE_VERSION=", GUARANTEE_VERSION)
     finally:
         await recipient_client.aclose()
 
