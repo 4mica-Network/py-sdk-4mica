@@ -282,9 +282,7 @@ async def test_create_tab_includes_guarantee_version():
     rpc = DummyRpc()
     fake_client = SimpleNamespace(
         rpc=rpc,
-        _signer=SimpleNamespace(
-            address="0x0000000000000000000000000000000000000002"
-        ),
+        _signer=SimpleNamespace(address="0x0000000000000000000000000000000000000002"),
         guarantee_domain=b"\x00" * 32,
         guarantee_domains={1: b"\x00" * 32},
         params=SimpleNamespace(public_key=b"\x11" * 48),
