@@ -392,6 +392,7 @@ def _build_v2_requirements(
     validator_agent_id: int,
     min_validation_score: int,
     required_validation_tag: str,
+    job_hash: str,
 ) -> PaymentRequirementsV2:
     return PaymentRequirementsV2(
         scheme="4mica-credit",
@@ -407,6 +408,7 @@ def _build_v2_requirements(
             "validatorAgentId": hex(validator_agent_id),
             "minValidationScore": min_validation_score,
             "requiredValidationTag": required_validation_tag,
+            "jobHash": job_hash,
         },
     )
 
@@ -541,6 +543,7 @@ def _v2_claims_from_payload(payload: Dict[str, Any]) -> PaymentGuaranteeRequestC
         min_validation_score=int(payload["min_validation_score"]),
         validation_subject_hash=str(payload["validation_subject_hash"]),
         required_validation_tag=str(payload.get("required_validation_tag", "")),
+        job_hash=str(payload["job_hash"]),
     )
 
 
@@ -1281,6 +1284,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
         validator_agent_id = _env_int("VALIDATOR_AGENT_ID", 1)
         min_score = _env_int("MIN_VALIDATION_SCORE", 80)
         validation_tag = _env("VALIDATION_TAG", "")
+        job_hash = _env("JOB_HASH", "0x" + "11" * 32)
 
         # Resolve chain id for validation registry
         validation_chain_id_env = _env("VALIDATION_CHAIN_ID")
@@ -1352,6 +1356,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
                 validator_agent_id=validator_agent_id,
                 min_validation_score=min_score,
                 required_validation_tag=validation_tag,
+                job_hash=job_hash,
             )
             payment_required_v2 = X402PaymentRequired(
                 x402_version=2,
@@ -1415,6 +1420,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
                 min_validation_score=min_score,
                 validation_subject_hash=validation_subject_hash,
                 required_validation_tag=validation_tag,
+                job_hash=job_hash,
             )
             validation_request_hash = compute_validation_request_hash(partial_policy)
 
@@ -1435,6 +1441,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
                 min_validation_score=min_score,
                 validation_subject_hash=validation_subject_hash,
                 required_validation_tag=validation_tag,
+                job_hash=job_hash,
             )
 
             # ------------------------------------------------------------------

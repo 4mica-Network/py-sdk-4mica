@@ -29,6 +29,7 @@ VALIDATOR_ADDRESS = os.getenv("VALIDATOR_ADDRESS")
 VALIDATOR_AGENT_ID = os.getenv("VALIDATOR_AGENT_ID")
 MIN_VALIDATION_SCORE = os.getenv("MIN_VALIDATION_SCORE")
 REQUIRED_VALIDATION_TAG = os.getenv("REQUIRED_VALIDATION_TAG", "")
+JOB_HASH = os.getenv("JOB_HASH")
 
 
 def build_claims(
@@ -55,6 +56,7 @@ def build_claims(
             VALIDATOR_ADDRESS,
             VALIDATOR_AGENT_ID,
             MIN_VALIDATION_SCORE,
+            JOB_HASH,
         )
     )
     if not wants_v2:
@@ -67,13 +69,13 @@ def build_claims(
             ("VALIDATOR_ADDRESS", VALIDATOR_ADDRESS),
             ("VALIDATOR_AGENT_ID", VALIDATOR_AGENT_ID),
             ("MIN_VALIDATION_SCORE", MIN_VALIDATION_SCORE),
+            ("JOB_HASH", JOB_HASH),
         )
         if value is None
     ]
     if missing:
         raise SystemExit(
-            "V2 payment requested but missing required env vars: "
-            + ", ".join(missing)
+            "V2 payment requested but missing required env vars: " + ", ".join(missing)
         )
 
     validation_chain_id = (
@@ -98,6 +100,7 @@ def build_claims(
         min_validation_score=int(MIN_VALIDATION_SCORE, 0),
         validation_subject_hash=validation_subject_hash,
         required_validation_tag=REQUIRED_VALIDATION_TAG,
+        job_hash=JOB_HASH,
     )
     return PaymentGuaranteeRequestClaimsV2.new(
         user_address=partial_claims.user_address,
@@ -115,6 +118,7 @@ def build_claims(
         min_validation_score=partial_claims.min_validation_score,
         validation_subject_hash=partial_claims.validation_subject_hash,
         required_validation_tag=partial_claims.required_validation_tag,
+        job_hash=partial_claims.job_hash,
     )
 
 

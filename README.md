@@ -216,6 +216,7 @@ from fourmica_sdk import Client, ConfigBuilder
 RECIPIENT_KEY = os.environ["RECIPIENT_KEY"]
 USER_ADDRESS = os.environ["USER_ADDRESS"]
 AMOUNT_WEI = int(os.getenv("AMOUNT_WEI", "100000000000000000"), 0)
+GUARANTEE_VERSION = int(os.getenv("GUARANTEE_VERSION", "1"), 10)
 
 
 async def main() -> None:
@@ -229,6 +230,7 @@ async def main() -> None:
             recipient_address=recipient_address,
             erc20_token=None,
             ttl=None,
+            guarantee_version=GUARANTEE_VERSION,
         )
         latest = await recipient_client.recipient.get_latest_guarantee(tab_id)
         req_id = latest.req_id + 1 if latest else 0
@@ -247,6 +249,7 @@ async def main() -> None:
             "TRUSTED_VALIDATION_REGISTRIES=",
             recipient_client.params.trusted_validation_registries,
         )
+        print("GUARANTEE_VERSION=", GUARANTEE_VERSION)
     finally:
         await recipient_client.aclose()
 
@@ -309,6 +312,7 @@ VALIDATOR_ADDRESS = os.getenv("VALIDATOR_ADDRESS")
 VALIDATOR_AGENT_ID = os.getenv("VALIDATOR_AGENT_ID")
 MIN_VALIDATION_SCORE = os.getenv("MIN_VALIDATION_SCORE")
 REQUIRED_VALIDATION_TAG = os.getenv("REQUIRED_VALIDATION_TAG", "")
+JOB_HASH = os.getenv("JOB_HASH")
 
 
 def build_claims(
@@ -335,6 +339,7 @@ def build_claims(
             VALIDATOR_ADDRESS,
             VALIDATOR_AGENT_ID,
             MIN_VALIDATION_SCORE,
+            JOB_HASH,
         )
     )
     if not wants_v2:
@@ -362,6 +367,7 @@ def build_claims(
         min_validation_score=int(MIN_VALIDATION_SCORE, 0),
         validation_subject_hash=validation_subject_hash,
         required_validation_tag=REQUIRED_VALIDATION_TAG,
+        job_hash=JOB_HASH,
     )
     return PaymentGuaranteeRequestClaimsV2.new(
         user_address=partial_claims.user_address,
@@ -379,6 +385,7 @@ def build_claims(
         min_validation_score=partial_claims.min_validation_score,
         validation_subject_hash=partial_claims.validation_subject_hash,
         required_validation_tag=partial_claims.required_validation_tag,
+        job_hash=partial_claims.job_hash,
     )
 
 
@@ -440,7 +447,7 @@ if __name__ == "__main__":
 
 For V2 x402 flows, include the following fields under `paymentRequirements.extra`:
 `validationRegistryAddress`, `validatorAddress`, `validatorAgentId`,
-`minValidationScore`, and optional `requiredValidationTag`.
+`minValidationScore`, `jobHash`, and optional `requiredValidationTag`.
 `validationChainId` is optional; when omitted, the SDK derives the expected chain id from the
 CAIP-2 `network` value (for example, `eip155:1`).
 
@@ -571,7 +578,7 @@ Notes:
 
 ## Concepts
 
-- Tabs are per `(user, recipient, asset)` credit ledgers. Core reuses an existing tab if it is still valid; otherwise it creates a new tab id using a SHA-256 hash of user, recipient, ttl, and a random UUID (treat `tab_id` as opaque).
+- Tabs are per `(user, recipient, asset, guarantee_version)` credit ledgers. Core reuses an existing active tab for that exact identity if it is still valid; otherwise it creates a new opaque `tab_id`.
 - Tab lifecycle: tabs start `Pending`; the first valid guarantee opens the tab and sets `start_timestamp` to the claim timestamp. Guarantees must be within `[start_timestamp, start_timestamp + ttl]` and are rejected if the tab is closed or expired.
 - Request ids: `req_id` is per-tab and strictly sequential. The first guarantee uses `req_id = 0`; each new guarantee must be `last_req_id + 1`. The facilitator returns `nextReqId` in `/tabs`.
 - Guarantee request claims (v1) are the signed payload: `{ user_address, recipient_address, tab_id, req_id, amount, asset_address, timestamp }`. `asset_address` is the zero address for ETH if omitted. `timestamp` is seconds since epoch and is validated by core.
@@ -628,7 +635,7 @@ Run them explicitly when the environment is available:
 ## End-to-end credit flow (x402)
 
 1. Resource sends `402 Payment Required` with `(scheme, network)` and a tab endpoint.
-2. Client calls the tab endpoint with `{ userAddress, erc20Token?, ttlSeconds? }`; the recipient calls `/tabs` and returns tab metadata.
+2. Client calls the tab endpoint with `{ userAddress, erc20Token?, ttlSeconds?, x402Version? }`; the recipient calls `/tabs` and returns tab metadata.
 3. Client signs a guarantee with the SDK and wraps it into `X-PAYMENT`.
 4. Client retries the protected call with `X-PAYMENT: <base64>`.
 5. Recipient optionally calls `/verify` with `{ x402Version, paymentHeader, paymentRequirements }`.
@@ -650,7 +657,7 @@ Run them explicitly when the environment is available:
 
 ### RecipientClient Methods
 
-- `create_tab(user_address, recipient_address, erc20_token, ttl)`
+- `create_tab(user_address, recipient_address, erc20_token, ttl, guarantee_version=1)`
 - `get_tab_payment_status(tab_id)`
 - `issue_payment_guarantee(claims, signature, scheme)`
 - `verify_payment_guarantee(cert)`

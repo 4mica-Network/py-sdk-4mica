@@ -39,6 +39,7 @@ def _build_v2_claims() -> PaymentGuaranteeRequestClaimsV2:
         min_validation_score=80,
         validation_subject_hash=subject_hash,
         required_validation_tag="",
+        job_hash="0x" + "11" * 32,
     )
     return PaymentGuaranteeRequestClaimsV2.new(
         user_address=partial.user_address,
@@ -56,6 +57,7 @@ def _build_v2_claims() -> PaymentGuaranteeRequestClaimsV2:
         min_validation_score=partial.min_validation_score,
         validation_subject_hash=partial.validation_subject_hash,
         required_validation_tag=partial.required_validation_tag,
+        job_hash=partial.job_hash,
     )
 
 
@@ -77,6 +79,7 @@ def test_payment_guarantee_request_claims_v2_rejects_min_validation_score_zero()
             min_validation_score=0,
             validation_subject_hash="0x" + "00" * 32,
             required_validation_tag="",
+            job_hash="0x" + "11" * 32,
         )
 
 
@@ -117,6 +120,7 @@ def test_compute_validation_request_hash_changes_when_policy_changes():
         min_validation_score=90,
         validation_subject_hash=claims_a.validation_subject_hash,
         required_validation_tag=claims_a.required_validation_tag,
+        job_hash=claims_a.job_hash,
     )
 
     assert compute_validation_request_hash(claims_a) != compute_validation_request_hash(

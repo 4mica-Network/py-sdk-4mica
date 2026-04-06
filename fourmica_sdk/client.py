@@ -299,6 +299,7 @@ class RecipientClient:
         recipient_address: str,
         erc20_token: Optional[str],
         ttl: Optional[int],
+        guarantee_version: int = 1,
     ) -> int:
         self._check_signer(recipient_address, CreateTabError)
         body = {
@@ -306,6 +307,7 @@ class RecipientClient:
             "recipient_address": recipient_address,
             "erc20_token": erc20_token,
             "ttl": ttl,
+            "guarantee_version": int(guarantee_version),
         }
         try:
             result = await self.client.rpc.create_payment_tab(body)
