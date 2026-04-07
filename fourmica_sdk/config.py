@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .signing import EvmSigner
 
 from .errors import ConfigError
+from .networks import resolve_network_rpc_url
 from .utils import (
     ValidationError,
     normalize_address,
@@ -35,7 +36,7 @@ class Config:
 
 class ConfigBuilder:
     def __init__(self) -> None:
-        self._rpc_url: Optional[str] = "https://api.4mica.xyz/"
+        self._rpc_url: Optional[str] = "https://ethereum.sepolia.4mica.xyz/"
         self._wallet_private_key: Optional[str] = None
         self._evm_signer: Optional["EvmSigner"] = None
         self._ethereum_http_rpc_url: Optional[str] = None
@@ -46,7 +47,33 @@ class ConfigBuilder:
         self._auth_refresh_margin_secs: Optional[Union[int, str]] = 60
 
     def rpc_url(self, value: str) -> "ConfigBuilder":
+        """Set the 4Mica core RPC URL directly. Use :meth:`network` to select a hosted network by name instead. Defaults to ``https://ethereum.sepolia.4mica.xyz/``."""
         self._rpc_url = value
+        return self
+
+    def network(self, value: str) -> "ConfigBuilder":
+        """Select a hosted 4Mica network by shorthand or CAIP-2 identifier.
+
+        Resolves to the corresponding core API URL. Mutually exclusive with
+        :meth:`rpc_url` — last call wins.
+
+        Supported values: ``"base-sepolia"`` / ``"eip155:84532"``,
+        ``"ethereum-sepolia"`` / ``"eip155:11155111"``.
+
+        :raises ConfigError: if the network is not recognised.
+
+        Example::
+
+            ConfigBuilder().network("base-sepolia").wallet_private_key("0x...").build()
+            ConfigBuilder().network("eip155:84532").wallet_private_key("0x...").build()
+        """
+        url = resolve_network_rpc_url(value)
+        if not url:
+            raise ConfigError(
+                f'unknown network "{value}". Use a known shorthand (e.g. "base-sepolia") '
+                "or CAIP-2 id, or call rpc_url() directly."
+            )
+        self._rpc_url = url
         return self
 
     def wallet_private_key(self, value: str) -> "ConfigBuilder":
@@ -83,6 +110,8 @@ class ConfigBuilder:
 
     def from_env(self) -> "ConfigBuilder":
         env = os.environ
+        if "4MICA_NETWORK" in env:
+            self.network(env["4MICA_NETWORK"])
         if "4MICA_RPC_URL" in env:
             self._rpc_url = env["4MICA_RPC_URL"]
         if "4MICA_WALLET_PRIVATE_KEY" in env:

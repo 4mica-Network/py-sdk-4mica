@@ -31,13 +31,31 @@ pip install 'sdk-4mica[bls]'
 
 Python 3.9+ is required.
 
+## Networks
+
+| Shorthand | CAIP-2 | Core API URL |
+|---|---|---|
+| `ethereum-sepolia` | `eip155:11155111` | `https://ethereum.sepolia.4mica.xyz/` |
+| `base-sepolia` | `eip155:84532` | `https://base.sepolia.4mica.xyz/` |
+
+The default network is Ethereum Sepolia. Use `.network()` or the `4MICA_NETWORK` environment
+variable to switch networks.
+
+```python
+from fourmica_sdk import NETWORKS
+
+print(NETWORKS["base-sepolia"].caip2)    # "eip155:84532"
+print(NETWORKS["base-sepolia"].rpc_url)  # "https://base.sepolia.4mica.xyz/"
+```
+
 ## Initialization and Configuration
 
 The SDK requires a signing key and can use sensible defaults for the rest:
 
 - `wallet_private_key` (**required**): private key used for on-chain gateway operations
 - `evm_signer` (optional): custom signer implementing `EvmSigner` for payment/auth signing
-- `rpc_url` (optional): URL of the 4Mica core RPC server. Defaults to `https://api.4mica.xyz/`.
+- `network` (optional): select a network by shorthand or CAIP-2 id. Defaults to `ethereum-sepolia`.
+- `rpc_url` (optional): override the core API URL directly (for self-hosted deployments).
 - `ethereum_http_rpc_url` (optional): Ethereum JSON-RPC endpoint; fetched from core if omitted
 - `contract_address` (optional): Core4Mica contract address; fetched from core if omitted
 - `bearer_token` (optional): static bearer token for auth
@@ -58,7 +76,7 @@ from fourmica_sdk import Client, ConfigBuilder
 async def main() -> None:
     cfg = (
         ConfigBuilder()
-        .rpc_url("https://api.4mica.xyz/")
+        .network("base-sepolia")   # or "ethereum-sepolia" (default)
         .wallet_private_key("0x...")
         .build()
     )
@@ -81,11 +99,13 @@ Set environment variables (example `.env`):
 
 ```bash
 4MICA_WALLET_PRIVATE_KEY="0x..."
-4MICA_RPC_URL="https://api.4mica.xyz/"
+4MICA_NETWORK="base-sepolia"             # shorthand or CAIP-2 id
+# or override URL directly:
+# 4MICA_RPC_URL="https://base.sepolia.4mica.xyz/"
 4MICA_ETHEREUM_HTTP_RPC_URL="http://localhost:8545"
 4MICA_CONTRACT_ADDRESS="0x..."
 4MICA_BEARER_TOKEN="Bearer <access_token>"
-4MICA_AUTH_URL="https://api.4mica.xyz/"
+4MICA_AUTH_URL="https://ethereum.sepolia.4mica.xyz/"
 4MICA_AUTH_REFRESH_MARGIN_SECS="60"
 ```
 
@@ -93,7 +113,7 @@ If you want to set them inline for a single command, use `env` since most shells
 variable names that start with a digit:
 
 ```bash
-env 4MICA_WALLET_PRIVATE_KEY="0x..." 4MICA_RPC_URL="https://api.4mica.xyz/" python app.py
+env 4MICA_WALLET_PRIVATE_KEY="0x..." 4MICA_NETWORK="base-sepolia" python app.py
 ```
 
 Then in code:

@@ -1,5 +1,6 @@
 from .client import Client
 from .config import AuthConfig, Config, ConfigBuilder
+from .networks import NETWORKS, NetworkInfo, resolve_network_rpc_url
 from .errors import (
     ApproveErc20Error,
     AuthConfigError,
@@ -74,6 +75,9 @@ __all__ = [
     "Config",
     "ConfigBuilder",
     "AuthConfig",
+    "NETWORKS",
+    "NetworkInfo",
+    "resolve_network_rpc_url",
     "FourMicaError",
     "ConfigError",
     "AuthError",
