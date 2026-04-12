@@ -33,11 +33,11 @@ class NetworkInfo:
 NETWORKS: dict[str, NetworkInfo] = {
     "base-sepolia": NetworkInfo(
         caip2="eip155:84532",
-        rpc_url="https://base.sepolia.4mica.xyz/",
+        rpc_url="https://base.sepolia.api.4mica.xyz/",
     ),
     "ethereum-sepolia": NetworkInfo(
         caip2="eip155:11155111",
-        rpc_url="https://ethereum.sepolia.4mica.xyz/",
+        rpc_url="https://ethereum.sepolia.api.4mica.xyz/",
     ),
 }
 
@@ -49,8 +49,8 @@ def resolve_network_rpc_url(network: str) -> Optional[str]:
 
     Example::
 
-        resolve_network_rpc_url("base-sepolia")  # "https://base.sepolia.4mica.xyz/"
-        resolve_network_rpc_url("eip155:84532")  # "https://base.sepolia.4mica.xyz/"
+        resolve_network_rpc_url("base-sepolia")  # "https://base.sepolia.api.4mica.xyz/"
+        resolve_network_rpc_url("eip155:84532")  # "https://base.sepolia.api.4mica.xyz/"
         resolve_network_rpc_url("eip155:1")      # None
     """
     info = NETWORKS.get(network) or _NETWORKS_BY_CAIP2.get(network)

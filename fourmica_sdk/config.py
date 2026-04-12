@@ -36,7 +36,7 @@ class Config:
 
 class ConfigBuilder:
     def __init__(self) -> None:
-        self._rpc_url: Optional[str] = "https://ethereum.sepolia.4mica.xyz/"
+        self._rpc_url: Optional[str] = "https://ethereum.sepolia.api.4mica.xyz/"
         self._wallet_private_key: Optional[str] = None
         self._evm_signer: Optional["EvmSigner"] = None
         self._ethereum_http_rpc_url: Optional[str] = None
@@ -47,7 +47,7 @@ class ConfigBuilder:
         self._auth_refresh_margin_secs: Optional[Union[int, str]] = 60
 
     def rpc_url(self, value: str) -> "ConfigBuilder":
-        """Set the 4Mica core RPC URL directly. Use :meth:`network` to select a hosted network by name instead. Defaults to ``https://ethereum.sepolia.4mica.xyz/``."""
+        """Set the 4Mica core RPC URL directly. Use :meth:`network` to select a hosted network by name instead. Defaults to ``https://ethereum.sepolia.api.4mica.xyz/``."""
         self._rpc_url = value
         return self
 

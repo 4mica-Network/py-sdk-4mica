@@ -33,10 +33,10 @@ Python 3.9+ is required.
 
 ## Networks
 
-| Shorthand | CAIP-2 | Core API URL |
-|---|---|---|
-| `ethereum-sepolia` | `eip155:11155111` | `https://ethereum.sepolia.4mica.xyz/` |
-| `base-sepolia` | `eip155:84532` | `https://base.sepolia.4mica.xyz/` |
+| Shorthand          | CAIP-2            | Core API URL                              |
+| ------------------ | ----------------- | ----------------------------------------- |
+| `ethereum-sepolia` | `eip155:11155111` | `https://ethereum.sepolia.api.4mica.xyz/` |
+| `base-sepolia`     | `eip155:84532`    | `https://base.sepolia.api.4mica.xyz/`     |
 
 The default network is Ethereum Sepolia. Use `.network()` or the `4MICA_NETWORK` environment
 variable to switch networks.
@@ -45,7 +45,7 @@ variable to switch networks.
 from fourmica_sdk import NETWORKS
 
 print(NETWORKS["base-sepolia"].caip2)    # "eip155:84532"
-print(NETWORKS["base-sepolia"].rpc_url)  # "https://base.sepolia.4mica.xyz/"
+print(NETWORKS["base-sepolia"].rpc_url)  # "https://base.sepolia.api.4mica.xyz/"
 ```
 
 ## Initialization and Configuration
@@ -101,11 +101,11 @@ Set environment variables (example `.env`):
 4MICA_WALLET_PRIVATE_KEY="0x..."
 4MICA_NETWORK="base-sepolia"             # shorthand or CAIP-2 id
 # or override URL directly:
-# 4MICA_RPC_URL="https://base.sepolia.4mica.xyz/"
+# 4MICA_RPC_URL="https://base.sepolia.api.4mica.xyz/"
 4MICA_ETHEREUM_HTTP_RPC_URL="http://localhost:8545"
 4MICA_CONTRACT_ADDRESS="0x..."
 4MICA_BEARER_TOKEN="Bearer <access_token>"
-4MICA_AUTH_URL="https://ethereum.sepolia.4mica.xyz/"
+4MICA_AUTH_URL="https://ethereum.sepolia.api.4mica.xyz/"
 4MICA_AUTH_REFRESH_MARGIN_SECS="60"
 ```
 
