@@ -172,7 +172,8 @@ class RpcProxy:
         )
 
     async def get_supported_tokens(self) -> List[Dict[str, Any]]:
-        return await self._get("/core/tokens")
+        response = await self._get("/core/tokens")
+        return response.get("tokens", [])
 
     async def get_user_asset_balance(
         self, user_address: str, asset_address: str
