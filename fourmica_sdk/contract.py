@@ -43,6 +43,7 @@ except ImportError:  # pragma: no cover - compatibility path or removed
     except ImportError:
         async_geth_poa_middleware = None  # type: ignore
 
+from .ssl_utils import ensure_ssl_certs, get_web3_ssl_context
 from .errors import (
     ApproveErc20Error,
     CancelWithdrawalError,
@@ -68,7 +69,12 @@ class ContractGateway:
         contract_address: str,
         chain_id: int,
     ) -> None:
-        self.w3 = AsyncWeb3(AsyncHTTPProvider(eth_rpc_url))
+        ensure_ssl_certs()
+        ssl_context = get_web3_ssl_context()
+        request_kwargs = {"ssl": ssl_context} if ssl_context is not None else {}
+        self.w3 = AsyncWeb3(
+            AsyncHTTPProvider(eth_rpc_url, request_kwargs=request_kwargs)
+        )
         # Support PoA chains used in tests/anvil when middleware is available.
         if async_geth_poa_middleware:
             self.w3.middleware_onion.inject(async_geth_poa_middleware, layer=0)
