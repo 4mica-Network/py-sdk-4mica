@@ -36,14 +36,9 @@
           ]
         },
         {
-          "name": "usdc_",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "usdt_",
-          "type": "address",
-          "internalType": "address"
+          "name": "stablecoins_",
+          "type": "address[]",
+          "internalType": "address[]"
         }
       ],
       "stateMutability": "nonpayable"
@@ -99,26 +94,39 @@
     },
     {
       "type": "function",
-      "name": "USDC",
+      "name": "MAX_YIELD_FEE_BPS",
       "inputs": [],
       "outputs": [
         {
           "name": "",
-          "type": "address",
-          "internalType": "address"
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "stateMutability": "view"
     },
     {
       "type": "function",
-      "name": "USDT",
+      "name": "RECONCILIATION_DUST_TOLERANCE_SCALED",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "aaveAddressesProvider",
       "inputs": [],
       "outputs": [
         {
           "name": "",
           "type": "address",
-          "internalType": "address"
+          "internalType": "contract IPoolAddressesProvider"
         }
       ],
       "stateMutability": "view"
@@ -151,6 +159,52 @@
           "name": "asset",
           "type": "address",
           "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "claimProtocolYield",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "claimSurplusATokens",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "scaledAmount",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [],
@@ -198,6 +252,24 @@
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "configureAave",
+      "inputs": [
+        {
+          "name": "poolAddressesProvider",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "aTokens",
+          "type": "address[]",
+          "internalType": "address[]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
     },
     {
       "type": "function",
@@ -253,6 +325,25 @@
       ],
       "outputs": [],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "contractScaledATokenBalance",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -373,7 +464,7 @@
       "name": "getPaymentStatus",
       "inputs": [
         {
-          "name": "tab_id",
+          "name": "tabId",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -503,6 +594,54 @@
     },
     {
       "type": "function",
+      "name": "grossYield",
+      "inputs": [
+        {
+          "name": "user",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "guaranteeCapacity",
+      "inputs": [
+        {
+          "name": "user",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "guaranteeDomainSeparator",
       "inputs": [],
       "outputs": [
@@ -552,7 +691,7 @@
       "name": "payTabInERC20Token",
       "inputs": [
         {
-          "name": "tab_id",
+          "name": "tabId",
           "type": "uint256",
           "internalType": "uint256"
         },
@@ -606,10 +745,90 @@
     },
     {
       "type": "function",
+      "name": "principalBalance",
+      "inputs": [
+        {
+          "name": "user",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "protocolScaledBalance",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "protocolYieldShare",
+      "inputs": [
+        {
+          "name": "user",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "reconciliationDustToleranceScaled",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
       "name": "recordPayment",
       "inputs": [
         {
-          "name": "tab_id",
+          "name": "tabId",
           "type": "uint256",
           "internalType": "uint256"
         },
@@ -861,6 +1080,57 @@
     },
     {
       "type": "function",
+      "name": "setYieldFeeBps",
+      "inputs": [
+        {
+          "name": "feeBps",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "stablecoinAToken",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "surplusScaledBalance",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "synchronizationDelay",
       "inputs": [],
       "outputs": [
@@ -887,10 +1157,53 @@
     },
     {
       "type": "function",
+      "name": "totalUserScaledBalance",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "unpause",
       "inputs": [],
       "outputs": [],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "userNetYield",
+      "inputs": [
+        {
+          "name": "user",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -961,12 +1274,12 @@
               "internalType": "bytes32"
             },
             {
-              "name": "tab_id",
+              "name": "tabId",
               "type": "uint256",
               "internalType": "uint256"
             },
             {
-              "name": "req_id",
+              "name": "reqId",
               "type": "uint256",
               "internalType": "uint256"
             },
@@ -986,7 +1299,7 @@
               "internalType": "uint256"
             },
             {
-              "name": "total_amount",
+              "name": "totalAmount",
               "type": "uint256",
               "internalType": "uint256"
             },
@@ -1006,6 +1319,30 @@
               "internalType": "uint64"
             }
           ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "withdrawableBalance",
+      "inputs": [
+        {
+          "name": "user",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "stateMutability": "view"
@@ -1051,6 +1388,38 @@
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "yieldFeeBps",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "AaveConfigured",
+      "inputs": [
+        {
+          "name": "provider",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "pool",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
     },
     {
       "type": "event",
@@ -1192,7 +1561,7 @@
       "name": "PaymentRecorded",
       "inputs": [
         {
-          "name": "tab_id",
+          "name": "tabId",
           "type": "uint256",
           "indexed": true,
           "internalType": "uint256"
@@ -1214,10 +1583,35 @@
     },
     {
       "type": "event",
+      "name": "ProtocolYieldClaimed",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "RecipientRemunerated",
       "inputs": [
         {
-          "name": "tab_id",
+          "name": "tabId",
           "type": "uint256",
           "indexed": true,
           "internalType": "uint256"
@@ -1243,6 +1637,56 @@
       "inputs": [
         {
           "name": "newGracePeriod",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "StablecoinAssetUpdated",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "indexed": false,
+          "internalType": "bool"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "SurplusATokensClaimed",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "scaledAmount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "nominalAmount",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
@@ -1281,7 +1725,7 @@
       "name": "TabPaid",
       "inputs": [
         {
-          "name": "tab_id",
+          "name": "tabId",
           "type": "uint256",
           "indexed": true,
           "internalType": "uint256"
@@ -1296,6 +1740,12 @@
           "name": "user",
           "type": "address",
           "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": false,
           "internalType": "address"
         },
         {
@@ -1419,6 +1869,35 @@
       "anonymous": false
     },
     {
+      "type": "event",
+      "name": "YieldFeeBpsUpdated",
+      "inputs": [
+        {
+          "name": "oldFeeBps",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "newFeeBps",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "AaveNotConfigured",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "AaveProviderReconfigurationBlocked",
+      "inputs": []
+    },
+    {
       "type": "error",
       "name": "AccessManagedInvalidAuthority",
       "inputs": [
@@ -1483,6 +1962,11 @@
     },
     {
       "type": "error",
+      "name": "FeeTooHigh",
+      "inputs": []
+    },
+    {
+      "type": "error",
       "name": "GracePeriodNotElapsed",
       "inputs": []
     },
@@ -1495,6 +1979,22 @@
       "type": "error",
       "name": "InsufficientAvailable",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidAToken",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "aToken",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
     },
     {
       "type": "error",
@@ -1540,6 +2040,27 @@
     },
     {
       "type": "error",
+      "name": "ReconciliationLoss",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "tracked",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "observed",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "ReentrancyGuardReentrantCall",
       "inputs": []
     },
@@ -1553,6 +2074,32 @@
           "internalType": "address"
         }
       ]
+    },
+    {
+      "type": "error",
+      "name": "StablecoinWithdrawShortfall",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "requested",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "actual",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "SurplusClaimExceedsAvailable",
+      "inputs": []
     },
     {
       "type": "error",
@@ -1581,6 +2128,11 @@
     },
     {
       "type": "error",
+      "name": "TreasuryClaimExceedsAvailable",
+      "inputs": []
+    },
+    {
+      "type": "error",
       "name": "UnsupportedAsset",
       "inputs": [
         {
@@ -1600,6 +2152,48 @@
           "internalType": "uint64"
         }
       ]
+    },
+    {
+      "type": "error",
+      "name": "UnsupportedTreasuryAsset",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "UserScaledBalanceUnderflow",
+      "inputs": [
+        {
+          "name": "asset",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "user",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "deduction",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "balance",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "ZeroAddress",
+      "inputs": []
     }
   ]
 }

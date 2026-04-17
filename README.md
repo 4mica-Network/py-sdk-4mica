@@ -200,7 +200,7 @@ Four-step direct flow:
 
 1. Deposit collateral (payer). For ETH, call `payer_client.user.deposit(amount)`. For ERC20,
    call `payer_client.user.approve_erc20(token, amount)` first, then
-   `payer_client.user.deposit(amount, token)`. `token` is the contract address of the USDC/USDT.
+   `payer_client.user.deposit(amount, token)`. `token` is the contract address of the supported stablecoin asset.
 2. Get `tab_id` and `req_id` (recipient). Call `recipient_client.recipient.create_tab(...)` which
    hits core `/core/payment-tabs`. The SDK returns `tab_id`; compute the next `req_id` by calling
    `latest = await recipient_client.recipient.get_latest_guarantee(tab_id)` and using
