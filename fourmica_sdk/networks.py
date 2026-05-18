@@ -27,10 +27,14 @@ class NetworkInfo:
 #:
 #:     from fourmica_sdk import ConfigBuilder, NETWORKS
 #:
-#:     cfg = ConfigBuilder().network("base-sepolia").wallet_private_key("0x...").build()
+#:     cfg = ConfigBuilder().network("base").wallet_private_key("0x...").build()
 #:
-#:     print(NETWORKS["base-sepolia"].caip2)    # "eip155:84532"
+#:     print(NETWORKS["base"].caip2)    # "eip155:8453"
 NETWORKS: dict[str, NetworkInfo] = {
+    "base": NetworkInfo(
+        caip2="eip155:8453",
+        rpc_url="https://base.api.4mica.xyz/",
+    ),
     "base-sepolia": NetworkInfo(
         caip2="eip155:84532",
         rpc_url="https://base.sepolia.api.4mica.xyz/",
@@ -49,8 +53,8 @@ def resolve_network_rpc_url(network: str) -> Optional[str]:
 
     Example::
 
-        resolve_network_rpc_url("base-sepolia")  # "https://base.sepolia.api.4mica.xyz/"
-        resolve_network_rpc_url("eip155:84532")  # "https://base.sepolia.api.4mica.xyz/"
+        resolve_network_rpc_url("base")          # "https://base.api.4mica.xyz/"
+        resolve_network_rpc_url("eip155:8453")   # "https://base.api.4mica.xyz/"
         resolve_network_rpc_url("eip155:1")      # None
     """
     info = NETWORKS.get(network) or _NETWORKS_BY_CAIP2.get(network)
