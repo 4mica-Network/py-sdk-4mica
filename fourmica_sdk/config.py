@@ -57,20 +57,21 @@ class ConfigBuilder:
         Resolves to the corresponding core API URL. Mutually exclusive with
         :meth:`rpc_url` — last call wins.
 
-        Supported values: ``"base-sepolia"`` / ``"eip155:84532"``,
-        ``"ethereum-sepolia"`` / ``"eip155:11155111"``.
+        Supported values: ``"base"`` / ``"eip155:8453"``,
+        ``"base-sepolia"`` / ``"eip155:84532"``, ``"ethereum-sepolia"`` /
+        ``"eip155:11155111"``.
 
         :raises ConfigError: if the network is not recognised.
 
         Example::
 
-            ConfigBuilder().network("base-sepolia").wallet_private_key("0x...").build()
-            ConfigBuilder().network("eip155:84532").wallet_private_key("0x...").build()
+            ConfigBuilder().network("base").wallet_private_key("0x...").build()
+            ConfigBuilder().network("eip155:8453").wallet_private_key("0x...").build()
         """
         url = resolve_network_rpc_url(value)
         if not url:
             raise ConfigError(
-                f'unknown network "{value}". Use a known shorthand (e.g. "base-sepolia") '
+                f'unknown network "{value}". Use a known shorthand (e.g. "base") '
                 "or CAIP-2 id, or call rpc_url() directly."
             )
         self._rpc_url = url
@@ -112,7 +113,7 @@ class ConfigBuilder:
         env = os.environ
         if "4MICA_NETWORK" in env:
             self.network(env["4MICA_NETWORK"])
-        if "4MICA_RPC_URL" in env:
+        elif "4MICA_RPC_URL" in env:
             self._rpc_url = env["4MICA_RPC_URL"]
         if "4MICA_WALLET_PRIVATE_KEY" in env:
             self._wallet_private_key = env["4MICA_WALLET_PRIVATE_KEY"]

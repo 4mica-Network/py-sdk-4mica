@@ -12,6 +12,26 @@ def test_config_builder_reads_from_env(monkeypatch):
     assert cfg.wallet_private_key.startswith("0x11")
 
 
+def test_config_builder_resolves_base_network():
+    by_name = ConfigBuilder().network("base").wallet_private_key("11" * 32).build()
+    by_caip2 = (
+        ConfigBuilder().network("eip155:8453").wallet_private_key("11" * 32).build()
+    )
+
+    assert by_name.rpc_url == "https://base.api.4mica.xyz/"
+    assert by_caip2.rpc_url == "https://base.api.4mica.xyz/"
+
+
+def test_config_builder_network_env_takes_precedence(monkeypatch):
+    monkeypatch.setenv("4MICA_NETWORK", "base")
+    monkeypatch.setenv("4MICA_RPC_URL", "https://example.com")
+    monkeypatch.setenv("4MICA_WALLET_PRIVATE_KEY", "11" * 32)
+
+    cfg = ConfigBuilder().from_env().build()
+
+    assert cfg.rpc_url == "https://base.api.4mica.xyz/"
+
+
 def test_config_builder_requires_private_key(monkeypatch):
     monkeypatch.delenv("4MICA_WALLET_PRIVATE_KEY", raising=False)
     builder = ConfigBuilder().from_env()

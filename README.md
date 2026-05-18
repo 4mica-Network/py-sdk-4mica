@@ -35,6 +35,7 @@ Python 3.9+ is required.
 
 | Shorthand          | CAIP-2            | Core API URL                              |
 | ------------------ | ----------------- | ----------------------------------------- |
+| `base`             | `eip155:8453`     | `https://base.api.4mica.xyz/`             |
 | `ethereum-sepolia` | `eip155:11155111` | `https://ethereum.sepolia.api.4mica.xyz/` |
 | `base-sepolia`     | `eip155:84532`    | `https://base.sepolia.api.4mica.xyz/`     |
 
@@ -44,8 +45,8 @@ variable to switch networks.
 ```python
 from fourmica_sdk import NETWORKS
 
-print(NETWORKS["base-sepolia"].caip2)    # "eip155:84532"
-print(NETWORKS["base-sepolia"].rpc_url)  # "https://base.sepolia.api.4mica.xyz/"
+print(NETWORKS["base"].caip2)    # "eip155:8453"
+print(NETWORKS["base"].rpc_url)  # "https://base.api.4mica.xyz/"
 ```
 
 ## Initialization and Configuration
@@ -76,7 +77,7 @@ from fourmica_sdk import Client, ConfigBuilder
 async def main() -> None:
     cfg = (
         ConfigBuilder()
-        .network("base-sepolia")   # or "ethereum-sepolia" (default)
+        .network("base")           # or "ethereum-sepolia" (default)
         .wallet_private_key("0x...")
         .build()
     )
@@ -99,7 +100,7 @@ Set environment variables (example `.env`):
 
 ```bash
 4MICA_WALLET_PRIVATE_KEY="0x..."
-4MICA_NETWORK="base-sepolia"             # shorthand or CAIP-2 id
+4MICA_NETWORK="base"                     # shorthand or CAIP-2 id
 # or override URL directly:
 # 4MICA_RPC_URL="https://base.sepolia.api.4mica.xyz/"
 4MICA_ETHEREUM_HTTP_RPC_URL="http://localhost:8545"
@@ -113,7 +114,7 @@ If you want to set them inline for a single command, use `env` since most shells
 variable names that start with a digit:
 
 ```bash
-env 4MICA_WALLET_PRIVATE_KEY="0x..." 4MICA_NETWORK="base-sepolia" python app.py
+env 4MICA_WALLET_PRIVATE_KEY="0x..." 4MICA_NETWORK="base" python app.py
 ```
 
 Then in code:
