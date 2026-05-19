@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 import warnings
 from typing import Any, Dict, List, Optional
 
@@ -57,6 +59,9 @@ from .errors import (
     TabPaymentStatusError,
 )
 from .utils import load_abi, normalize_address, parse_u256
+
+DEFAULT_RECEIPT_TIMEOUT_SECS = 60
+DEFAULT_RECEIPT_POLL_LATENCY_SECS = 2
 
 
 class ContractGateway:
@@ -166,10 +171,39 @@ class ContractGateway:
             )
         return self._erc20_cache[checksum]
 
-    async def approve_erc20(self, token_address: str, amount: int) -> Dict[str, Any]:
+    async def _wait_for_erc20_allowance(
+        self,
+        contract: Any,
+        target: int,
+        timeout: int = DEFAULT_RECEIPT_TIMEOUT_SECS,
+        poll_latency: int = DEFAULT_RECEIPT_POLL_LATENCY_SECS,
+    ) -> int:
+        deadline = time.monotonic() + timeout
+        actual = 0
+        while time.monotonic() <= deadline:
+            actual = int(
+                await contract.functions.allowance(
+                    self.account.address, self.contract_address
+                ).call()
+            )
+            if actual >= target:
+                return actual
+            await asyncio.sleep(min(poll_latency, max(0, deadline - time.monotonic())))
+        return actual
+
+    async def approve_erc20(
+        self, token_address: str, amount: int
+    ) -> Optional[Dict[str, Any]]:
         try:
             contract = self._erc20(token_address)
             target = parse_u256(amount)
+            current = int(
+                await contract.functions.allowance(
+                    self.account.address, self.contract_address
+                ).call()
+            )
+            if current >= target:
+                return None
 
             async def send_approve(value: int) -> Dict[str, Any]:
                 func = contract.functions.approve(self.contract_address, value)
@@ -187,11 +221,8 @@ class ContractGateway:
                 await send_approve(0)
                 receipt = await send_approve(target)
 
-            # Verify the allowance was actually set on-chain.
-            actual = await contract.functions.allowance(
-                self.account.address, self.contract_address
-            ).call()
-            if int(actual) < target:
+            actual = await self._wait_for_erc20_allowance(contract, target)
+            if actual < target:
                 raise ContractError(
                     f"ERC20 allowance verification failed: on-chain allowance is "
                     f"{actual} but expected {target}. Try calling approve_erc20 again."

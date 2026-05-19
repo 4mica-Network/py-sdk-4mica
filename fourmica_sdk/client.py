@@ -111,8 +111,8 @@ class Client:
             )
         eth_rpc_url = (
             cfg.ethereum_http_rpc_url
-            or resolve_public_rpc_url(f"eip155:{params.chain_id}")
             or params.ethereum_http_rpc_url
+            or resolve_public_rpc_url(f"eip155:{params.chain_id}")
         )
         contract_address = cfg.contract_address or params.contract_address
         return ContractGateway(
@@ -140,8 +140,18 @@ class Client:
         gateway: ContractGateway, params: CorePublicParameters
     ) -> tuple[bytes, Dict[int, bytes]]:
         try:
+            if params.active_guarantee_domain_separator:
+                domain = bytes.fromhex(
+                    params.active_guarantee_domain_separator.removeprefix("0x")
+                )
+                guarantee_domains: Dict[int, bytes] = {
+                    v: domain for v in params.accepted_guarantee_versions_or_default()
+                }
+                guarantee_domains.setdefault(1, domain)
+                return domain, guarantee_domains
+
             accepted_versions = params.accepted_guarantee_versions_or_default()
-            guarantee_domains: Dict[int, bytes] = {}
+            guarantee_domains = {}
 
             for version in accepted_versions:
                 config = await gateway.get_guarantee_version_config(version)
@@ -156,15 +166,6 @@ class Client:
                 active_guarantee_domain = (
                     await gateway.contract.functions.guaranteeDomainSeparator().call()
                 )
-
-            if params.active_guarantee_domain_separator:
-                expected = bytes.fromhex(
-                    params.active_guarantee_domain_separator.removeprefix("0x")
-                )
-                if active_guarantee_domain != expected:
-                    raise ClientInitializationError(
-                        "guarantee domain mismatch between core metadata and contract"
-                    )
 
             if 1 not in guarantee_domains:
                 guarantee_domains[1] = bytes(
@@ -215,7 +216,7 @@ class UserClient:
     def guarantee_domains(self) -> Dict[int, bytes]:
         return self.client.guarantee_domains
 
-    async def approve_erc20(self, token: str, amount: int) -> dict:
+    async def approve_erc20(self, token: str, amount: int) -> Optional[dict]:
         return await self.client.gateway.approve_erc20(token, amount)
 
     async def deposit(self, amount: int, erc20_token: Optional[str] = None) -> dict:
