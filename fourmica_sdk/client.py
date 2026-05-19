@@ -6,6 +6,7 @@ from .auth import AuthClient, AuthSession, AuthTokens
 from .bls_utils import signature_to_words, verify_bls_signature
 from .config import Config
 from .contract import ContractGateway
+from .networks import resolve_public_rpc_url
 from .errors import (
     AuthConfigError,
     ClientInitializationError,
@@ -108,7 +109,11 @@ class Client:
             raise ClientInitializationError(
                 "wallet_private_key is required to initialize ContractGateway"
             )
-        eth_rpc_url = cfg.ethereum_http_rpc_url or params.ethereum_http_rpc_url
+        eth_rpc_url = (
+            cfg.ethereum_http_rpc_url
+            or resolve_public_rpc_url(f"eip155:{params.chain_id}")
+            or params.ethereum_http_rpc_url
+        )
         contract_address = cfg.contract_address or params.contract_address
         return ContractGateway(
             eth_rpc_url,

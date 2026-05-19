@@ -120,7 +120,9 @@ class ContractGateway:
             if raw_tx is None:
                 raise ContractError("SignedTransaction missing raw_transaction")
             tx_hash = await self.w3.eth.send_raw_transaction(raw_tx)
-            receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            receipt = await self.w3.eth.wait_for_transaction_receipt(
+                tx_hash, timeout=60, poll_latency=2
+            )
             receipt_dict = dict(receipt)
             status = receipt_dict.get("status")
             if status in (0, "0x0", False):
@@ -167,10 +169,37 @@ class ContractGateway:
     async def approve_erc20(self, token_address: str, amount: int) -> Dict[str, Any]:
         try:
             contract = self._erc20(token_address)
-            func = contract.functions.approve(self.contract_address, parse_u256(amount))
-            tx = await self._prepare_tx(func)
-            built = await self._build_tx(func, tx)
-            return await self._build_and_send(built)
+            target = parse_u256(amount)
+
+            async def send_approve(value: int) -> Dict[str, Any]:
+                func = contract.functions.approve(self.contract_address, value)
+                tx = await self._prepare_tx(func)
+                built = await self._build_tx(func, tx)
+                return await self._build_and_send(built)
+
+            try:
+                receipt = await send_approve(target)
+            except Exception:
+                if target == 0:
+                    raise
+                # Some ERC20s (e.g. USDT) revert when setting a non-zero allowance
+                # over an existing non-zero one — reset to 0 first, then re-approve.
+                await send_approve(0)
+                receipt = await send_approve(target)
+
+            # Verify the allowance was actually set on-chain.
+            actual = await contract.functions.allowance(
+                self.account.address, self.contract_address
+            ).call()
+            if int(actual) < target:
+                raise ContractError(
+                    f"ERC20 allowance verification failed: on-chain allowance is "
+                    f"{actual} but expected {target}. Try calling approve_erc20 again."
+                )
+
+            return receipt
+        except ContractError:
+            raise
         except Exception as exc:
             raise ApproveErc20Error(str(exc)) from exc
 

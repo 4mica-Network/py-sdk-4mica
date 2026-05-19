@@ -16,6 +16,9 @@ class NetworkInfo:
     rpc_url: str
     """Hosted 4Mica core API URL for this network."""
 
+    public_rpc_url: str
+    """Reliable public Ethereum RPC for on-chain calls (fallback when server doesn't provide one)."""
+
 
 #: Hosted 4Mica network deployments, keyed by human-readable shorthand.
 #:
@@ -34,14 +37,17 @@ NETWORKS: dict[str, NetworkInfo] = {
     "base": NetworkInfo(
         caip2="eip155:8453",
         rpc_url="https://base.api.4mica.xyz/",
+        public_rpc_url="https://base-rpc.publicnode.com",
     ),
     "base-sepolia": NetworkInfo(
         caip2="eip155:84532",
         rpc_url="https://base.sepolia.api.4mica.xyz/",
+        public_rpc_url="https://base-sepolia-rpc.publicnode.com",
     ),
     "ethereum-sepolia": NetworkInfo(
         caip2="eip155:11155111",
         rpc_url="https://ethereum.sepolia.api.4mica.xyz/",
+        public_rpc_url="https://ethereum-sepolia-rpc.publicnode.com",
     ),
 }
 
@@ -59,3 +65,9 @@ def resolve_network_rpc_url(network: str) -> Optional[str]:
     """
     info = NETWORKS.get(network) or _NETWORKS_BY_CAIP2.get(network)
     return info.rpc_url if info else None
+
+
+def resolve_public_rpc_url(caip2: str) -> Optional[str]:
+    """Return the reliable public Ethereum RPC URL for *caip2*, or ``None`` for unknown networks."""
+    info = _NETWORKS_BY_CAIP2.get(caip2)
+    return info.public_rpc_url if info else None
