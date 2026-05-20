@@ -9,6 +9,8 @@ from .signing import CorePublicParameters
 
 ADMIN_API_KEY_HEADER = "x-api-key"
 AUTHORIZATION_HEADER = "authorization"
+SDK_CLIENT_HEADER = "x-4mica-sdk"
+SDK_CLIENT = "py-sdk-4mica/1.2.5"
 TokenProvider = Callable[[], Awaitable[str]]
 
 _RETRYABLE_STATUS_CODES: frozenset = frozenset({429, 500, 502, 503, 504})
@@ -52,7 +54,10 @@ class RpcProxy:
         await self.aclose()
 
     async def _headers(self, admin: bool = False) -> Dict[str, str]:
-        headers: Dict[str, str] = {}
+        headers: Dict[str, str] = {
+            SDK_CLIENT_HEADER: SDK_CLIENT,
+            "user-agent": SDK_CLIENT,
+        }
         if admin and self._admin_api_key:
             headers[ADMIN_API_KEY_HEADER] = self._admin_api_key
         token: Optional[str] = None
