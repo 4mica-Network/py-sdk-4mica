@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import httpx
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .errors import RpcError
@@ -10,7 +11,13 @@ from .signing import CorePublicParameters
 ADMIN_API_KEY_HEADER = "x-api-key"
 AUTHORIZATION_HEADER = "authorization"
 SDK_CLIENT_HEADER = "x-4mica-sdk"
-SDK_CLIENT = "py-sdk-4mica/1.2.5"
+
+try:
+    _SDK_VERSION = version("sdk-4mica")
+except PackageNotFoundError:
+    _SDK_VERSION = "unknown"
+
+SDK_CLIENT = f"py-sdk-4mica/{_SDK_VERSION}"
 TokenProvider = Callable[[], Awaitable[str]]
 
 _RETRYABLE_STATUS_CODES: frozenset = frozenset({429, 500, 502, 503, 504})
