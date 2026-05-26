@@ -139,6 +139,27 @@ cfg = ConfigBuilder().wallet_private_key("0x...").evm_signer(signer).build()
 client = await Client.new(cfg)
 ```
 
+For Coinbase CDP MPC wallets, install the optional dependency and pass the CDP signer as the
+custom `evm_signer`:
+
+```python
+from fourmica_sdk import CdpAccountConfig, ConfigBuilder, create_cdp_account
+
+cdp_signer = await create_cdp_account(
+    CdpAccountConfig(
+        api_key_id="...",
+        api_key_secret="...",
+        wallet_secret="...",
+        name="payer-wallet",
+    )
+)
+
+cfg = ConfigBuilder().wallet_private_key("0x...").evm_signer(cdp_signer).build()
+```
+
+CDP signing only covers off-chain payment/auth signatures. A local `wallet_private_key` is still
+required for on-chain gateway transactions.
+
 ### SIWE Auth (Optional)
 
 Enable automatic SIWE auth refresh, or pass a static bearer token:

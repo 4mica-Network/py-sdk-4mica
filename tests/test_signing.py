@@ -1,5 +1,7 @@
 import pytest
+from eth_abi import encode as abi_encode
 from eth_account import Account
+from eth_account.messages import encode_defunct, encode_typed_data
 
 from fourmica_sdk.errors import SigningError
 from fourmica_sdk.models import (
@@ -7,10 +9,25 @@ from fourmica_sdk.models import (
     PaymentGuaranteeRequestClaimsV2,
     SigningScheme,
 )
-from fourmica_sdk.signing import CorePublicParameters, PaymentSigner
+from fourmica_sdk.signing import (
+    CorePublicParameters,
+    PaymentSigner,
+    _build_typed_message,
+    _encode_eip191,
+)
 from fourmica_sdk.validation import (
     compute_validation_request_hash,
     compute_validation_subject_hash,
+)
+
+PRIVATE_KEY = "0x59c6995e998f97a5a0044976f7be35d5ad91c0cfa55b5cfb20b07a1c60f4c5bc"
+EXPECTED_TS_V1_EIP712_SIGNATURE = (
+    "0x436a65c06129741426a074ff472f773dca9cd049964b916ab9b56c5b7a4b629"
+    "64db7030eb297cbac8afb244b1e8b6fce1d891549021a4a1ccc87aec3a6c5bbed1b"
+)
+EXPECTED_TS_V2_EIP712_SIGNATURE = (
+    "0x048ab57adedc8463265f6d18b22187ca521e7153ab99e0382518abfbe757e2c"
+    "61787b9c3040cd74829a0a5db8745a2e02f8081234d61640b6b930746126e53b61b"
 )
 
 
@@ -92,14 +109,13 @@ async def test_sign_request_rejects_address_mismatch():
 
 @pytest.mark.asyncio
 async def test_sign_request_eip712_produces_signature():
-    private_key = "0x59c6995e998f97a5a0044976f7be35d5ad91c0cfa55b5cfb20b07a1c60f4c5bc"
-    account = Account.from_key(private_key)
-    signer = PaymentSigner(private_key)
+    account = Account.from_key(PRIVATE_KEY)
+    signer = PaymentSigner(PRIVATE_KEY)
     claims = PaymentGuaranteeRequestClaims.new(
         account.address,
         "0x0000000000000000000000000000000000000002",
         tab_id=42,
-        req_id=7,
+        req_id=2,
         amount=123,
         timestamp=999,
         erc20_token=None,
@@ -110,13 +126,18 @@ async def test_sign_request_eip712_produces_signature():
     # 65-byte signature expressed as 0x-prefixed hex (132 chars).
     assert signature.signature.startswith("0x")
     assert len(signature.signature) == 132
+    assert signature.signature == EXPECTED_TS_V1_EIP712_SIGNATURE
+    recovered = Account.recover_message(
+        encode_typed_data(full_message=_build_typed_message(build_params(), claims)),
+        signature=signature.signature,
+    )
+    assert recovered == account.address
 
 
 @pytest.mark.asyncio
 async def test_sign_request_eip191_produces_signature():
-    private_key = "0x59c6995e998f97a5a0044976f7be35d5ad91c0cfa55b5cfb20b07a1c60f4c5bc"
-    account = Account.from_key(private_key)
-    signer = PaymentSigner(private_key)
+    account = Account.from_key(PRIVATE_KEY)
+    signer = PaymentSigner(PRIVATE_KEY)
     claims = PaymentGuaranteeRequestClaims.new(
         account.address,
         "0x0000000000000000000000000000000000000002",
@@ -131,29 +152,119 @@ async def test_sign_request_eip191_produces_signature():
     assert signature.scheme == SigningScheme.EIP191
     assert signature.signature.startswith("0x")
     assert len(signature.signature) == 132
+    recovered = Account.recover_message(
+        encode_defunct(primitive=_encode_eip191(claims)),
+        signature=signature.signature,
+    )
+    assert recovered == account.address
 
 
 @pytest.mark.asyncio
 async def test_sign_request_v2_eip712_produces_signature():
-    private_key = "0x59c6995e998f97a5a0044976f7be35d5ad91c0cfa55b5cfb20b07a1c60f4c5bc"
-    account = Account.from_key(private_key)
-    signer = PaymentSigner(private_key)
+    account = Account.from_key(PRIVATE_KEY)
+    signer = PaymentSigner(PRIVATE_KEY)
     claims = build_v2_claims(account.address)
 
     signature = await signer.sign_request(build_params(), claims, SigningScheme.EIP712)
     assert signature.scheme == SigningScheme.EIP712
     assert signature.signature.startswith("0x")
     assert len(signature.signature) == 132
+    assert signature.signature == EXPECTED_TS_V2_EIP712_SIGNATURE
+    recovered = Account.recover_message(
+        encode_typed_data(full_message=_build_typed_message(build_params(), claims)),
+        signature=signature.signature,
+    )
+    assert recovered == account.address
 
 
 @pytest.mark.asyncio
 async def test_sign_request_v2_eip191_produces_signature():
-    private_key = "0x59c6995e998f97a5a0044976f7be35d5ad91c0cfa55b5cfb20b07a1c60f4c5bc"
-    account = Account.from_key(private_key)
-    signer = PaymentSigner(private_key)
+    account = Account.from_key(PRIVATE_KEY)
+    signer = PaymentSigner(PRIVATE_KEY)
     claims = build_v2_claims(account.address)
 
     signature = await signer.sign_request(build_params(), claims, SigningScheme.EIP191)
     assert signature.scheme == SigningScheme.EIP191
     assert signature.signature.startswith("0x")
     assert len(signature.signature) == 132
+    recovered = Account.recover_message(
+        encode_defunct(primitive=_encode_eip191(claims)),
+        signature=signature.signature,
+    )
+    assert recovered == account.address
+
+
+def test_v2_eip712_field_order_matches_ts_and_core():
+    account = Account.from_key(PRIVATE_KEY)
+    claims = build_v2_claims(account.address)
+
+    typed = _build_typed_message(build_params(), claims)
+
+    assert [item["name"] for item in typed["types"]["SolGuaranteeRequestClaimsV2"]] == [
+        "user",
+        "recipient",
+        "tabId",
+        "reqId",
+        "amount",
+        "asset",
+        "timestamp",
+        "validationRegistryAddress",
+        "validationRequestHash",
+        "validationChainId",
+        "validatorAddress",
+        "validatorAgentId",
+        "minValidationScore",
+        "validationSubjectHash",
+        "jobHash",
+        "requiredValidationTag",
+    ]
+    assert list(typed["message"])[-3:] == [
+        "validationSubjectHash",
+        "jobHash",
+        "requiredValidationTag",
+    ]
+
+
+def test_v2_eip191_encoding_order_matches_ts_and_core():
+    account = Account.from_key(PRIVATE_KEY)
+    claims = build_v2_claims(account.address)
+
+    expected = abi_encode(
+        [
+            "address",
+            "address",
+            "uint256",
+            "uint256",
+            "uint256",
+            "address",
+            "uint64",
+            "address",
+            "bytes32",
+            "uint256",
+            "address",
+            "uint256",
+            "uint8",
+            "bytes32",
+            "bytes32",
+            "string",
+        ],
+        [
+            claims.user_address,
+            claims.recipient_address,
+            claims.tab_id,
+            claims.req_id,
+            claims.amount,
+            claims.asset_address,
+            claims.timestamp,
+            claims.validation_registry_address,
+            bytes.fromhex(claims.validation_request_hash.removeprefix("0x")),
+            claims.validation_chain_id,
+            claims.validator_address,
+            claims.validator_agent_id,
+            claims.min_validation_score,
+            bytes.fromhex(claims.validation_subject_hash.removeprefix("0x")),
+            bytes.fromhex(claims.job_hash.removeprefix("0x")),
+            claims.required_validation_tag,
+        ],
+    )
+    assert _encode_eip191(claims) == expected

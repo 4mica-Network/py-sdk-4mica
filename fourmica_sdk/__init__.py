@@ -49,6 +49,7 @@ from .models import (
     UserInfo,
 )
 from .signing import EvmSigner, LocalAccountSigner, PaymentSigner
+from .wallet import CdpAccountConfig, CdpAccountSigner, create_cdp_account
 from .validation import (
     VALIDATION_REQUEST_BINDING_DOMAIN_V1,
     VALIDATION_SUBJECT_BINDING_DOMAIN_V1,
@@ -129,6 +130,9 @@ __all__ = [
     "EvmSigner",
     "LocalAccountSigner",
     "PaymentSigner",
+    "CdpAccountConfig",
+    "CdpAccountSigner",
+    "create_cdp_account",
     "TabInfo",
     "TabPaymentStatus",
     "UserInfo",
