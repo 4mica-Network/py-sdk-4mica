@@ -247,14 +247,34 @@ class UserClient:
             self.client.params, claims, scheme
         )
 
+    async def list_tabs(
+        self, settlement_statuses: Optional[List[str]] = None
+    ) -> List[TabInfo]:
+        address = normalize_address(self.client._signer.address)
+        tabs = await self.client.rpc.list_user_tabs(address, settlement_statuses)
+        return [TabInfo.from_rpc(t) for t in tabs]
+
     async def pay_tab(
         self,
         tab_id: int,
-        req_id: int,
-        amount: int,
-        recipient_address: str,
+        req_id: Optional[int] = None,
+        amount: Optional[int] = None,
+        recipient_address: Optional[str] = None,
         erc20_token: Optional[str] = None,
     ) -> dict:
+        if req_id is None or amount is None or recipient_address is None:
+            guarantee = await self.client.recipient.get_latest_guarantee(tab_id)
+            if not guarantee:
+                raise ValueError(f"Tab {tab_id} has no guarantee")
+            req_id = guarantee.req_id
+            amount = guarantee.amount
+            recipient_address = guarantee.to_address
+            erc20_token = (
+                guarantee.asset_address
+                if guarantee.asset_address
+                != "0x0000000000000000000000000000000000000000"
+                else None
+            )
         if erc20_token:
             return await self.client.gateway.pay_tab_erc20(
                 tab_id, amount, erc20_token, recipient_address

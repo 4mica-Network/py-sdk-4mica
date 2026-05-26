@@ -300,7 +300,10 @@ async def test_context_manager_returns_signer(mock_cdp: MagicMock) -> None:
 @pytest.mark.asyncio
 async def test_create_cdp_account_returns_signer_with_account_address() -> None:
     config = CdpAccountConfig(
-        api_key_id="kid", api_key_secret="ksecret", name="my-wallet"
+        api_key_id="kid",
+        api_key_secret="ksecret",
+        wallet_secret="wallet-secret",
+        name="my-wallet",
     )
 
     mock_account = MagicMock()
@@ -324,7 +327,10 @@ async def test_create_cdp_account_returns_signer_with_account_address() -> None:
 @pytest.mark.asyncio
 async def test_create_cdp_account_passes_credentials_to_client() -> None:
     config = CdpAccountConfig(
-        api_key_id="my-key-id", api_key_secret="my-secret", name="wallet"
+        api_key_id="my-key-id",
+        api_key_secret="my-secret",
+        wallet_secret="my-wallet-secret",
+        name="wallet",
     )
 
     mock_account = MagicMock()
@@ -343,13 +349,20 @@ async def test_create_cdp_account_passes_credentials_to_client() -> None:
         await create_cdp_account(config)
 
     mock_cdp_module.CdpClient.assert_called_once_with(
-        api_key_id="my-key-id", api_key_secret="my-secret"
+        api_key_id="my-key-id",
+        api_key_secret="my-secret",
+        wallet_secret="my-wallet-secret",
     )
 
 
 @pytest.mark.asyncio
 async def test_create_cdp_account_uses_idempotency_name() -> None:
-    config = CdpAccountConfig(api_key_id="k", api_key_secret="s", name="agent-wallet")
+    config = CdpAccountConfig(
+        api_key_id="k",
+        api_key_secret="s",
+        wallet_secret="wallet-secret",
+        name="agent-wallet",
+    )
 
     mock_account = MagicMock()
     mock_account.address = ADDRESS

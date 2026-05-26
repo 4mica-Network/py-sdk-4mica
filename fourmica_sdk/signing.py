@@ -47,8 +47,8 @@ def _build_typed_message(
                     {"name": "validatorAgentId", "type": "uint256"},
                     {"name": "minValidationScore", "type": "uint8"},
                     {"name": "validationSubjectHash", "type": "bytes32"},
-                    {"name": "requiredValidationTag", "type": "string"},
                     {"name": "jobHash", "type": "bytes32"},
+                    {"name": "requiredValidationTag", "type": "string"},
                 ],
             },
             "primaryType": "SolGuaranteeRequestClaimsV2",
@@ -76,8 +76,8 @@ def _build_typed_message(
                 "validationSubjectHash": normalize_bytes32_hex(
                     claims.validation_subject_hash
                 ),
-                "requiredValidationTag": claims.required_validation_tag,
                 "jobHash": normalize_bytes32_hex(claims.job_hash),
+                "requiredValidationTag": claims.required_validation_tag,
             },
         }
 
@@ -136,8 +136,8 @@ def _encode_eip191(
                 "uint256",
                 "uint8",
                 "bytes32",
-                "string",
                 "bytes32",
+                "string",
             ],
             [
                 claims.user_address,
@@ -162,10 +162,10 @@ def _encode_eip191(
                         "0x"
                     )
                 ),
-                claims.required_validation_tag,
                 bytes.fromhex(
                     normalize_bytes32_hex(claims.job_hash).removeprefix("0x")
                 ),
+                claims.required_validation_tag,
             ],
         )
 

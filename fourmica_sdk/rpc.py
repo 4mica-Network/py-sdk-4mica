@@ -150,6 +150,14 @@ class RpcProxy:
     async def get_tab(self, tab_id: int) -> Optional[Dict[str, Any]]:
         return await self._get(f"/core/tabs/{_serialize_tab_id(tab_id)}")
 
+    async def list_user_tabs(
+        self, user_address: str, settlement_statuses: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        params: Optional[Dict[str, Any]] = None
+        if settlement_statuses:
+            params = {"settlement_status": settlement_statuses}
+        return await self._get(f"/core/users/{user_address}/tabs", params=params)
+
     async def list_recipient_tabs(
         self, recipient_address: str, settlement_statuses: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:

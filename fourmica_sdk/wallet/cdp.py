@@ -12,6 +12,8 @@ class CdpAccountConfig:
     """CDP API key ID from the Coinbase Developer Platform dashboard."""
     api_key_secret: str
     """CDP API key secret from the Coinbase Developer Platform dashboard."""
+    wallet_secret: str
+    """Wallet secret — required for account creation and all signing operations (POST endpoints)."""
     name: str
     """Idempotency name — get_or_create_account always returns the same wallet for a given name."""
 
@@ -101,6 +103,10 @@ async def create_cdp_account(config: CdpAccountConfig) -> CdpAccountSigner:
     """Creates a CdpAccountSigner backed by a Coinbase CDP MPC wallet."""
     from cdp import CdpClient
 
-    cdp = CdpClient(api_key_id=config.api_key_id, api_key_secret=config.api_key_secret)
+    cdp = CdpClient(
+        api_key_id=config.api_key_id,
+        api_key_secret=config.api_key_secret,
+        wallet_secret=config.wallet_secret,
+    )
     evm_account = await cdp.evm.get_or_create_account(name=config.name)
     return CdpAccountSigner(address=evm_account.address, _cdp_client=cdp)
