@@ -6,6 +6,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .errors import RpcError
+from .models import SupportedTokensResponse
 from .signing import CorePublicParameters
 
 ADMIN_API_KEY_HEADER = "x-api-key"
@@ -191,9 +192,9 @@ class RpcProxy:
             f"/core/tabs/{_serialize_tab_id(tab_id)}/collateral-events"
         )
 
-    async def get_supported_tokens(self) -> List[Dict[str, Any]]:
+    async def get_supported_tokens(self) -> SupportedTokensResponse:
         response = await self._get("/core/tokens")
-        return response.get("tokens", [])
+        return SupportedTokensResponse.from_rpc(response)
 
     async def get_user_asset_balance(
         self, user_address: str, asset_address: str

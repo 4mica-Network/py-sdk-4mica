@@ -34,3 +34,27 @@ def test_normalize_address_round_trips_checksum():
 def test_parse_u256_rejects_negative_numbers():
     with pytest.raises(ValidationError):
         parse_u256(-1)
+
+
+def test_parse_u256_rejects_nan():
+    with pytest.raises(ValidationError):
+        parse_u256(float("nan"))
+
+
+def test_parse_u256_rejects_infinity():
+    with pytest.raises(ValidationError):
+        parse_u256(float("inf"))
+
+
+def test_parse_u256_rejects_non_numeric_string():
+    with pytest.raises(ValidationError):
+        parse_u256("abc")
+
+
+def test_parse_u256_accepts_decimal_string():
+    assert parse_u256("12345") == 12345
+
+
+def test_normalize_private_key_rejects_too_short_key():
+    with pytest.raises(ValidationError):
+        normalize_private_key("0x1234")

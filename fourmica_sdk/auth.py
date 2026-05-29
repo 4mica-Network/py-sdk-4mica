@@ -247,6 +247,15 @@ class AuthSession:
         self._cache_tokens(tokens)
         return tokens
 
+    async def logout(self) -> None:
+        async with self._lock:
+            if self._tokens:
+                try:
+                    await self._client.logout(self._tokens.refresh_token)
+                finally:
+                    self._tokens = None
+                    self._expires_at = None
+
     async def access_token(self) -> str:
         if self._token_valid():
             return self._tokens.access_token  # type: ignore[union-attr]

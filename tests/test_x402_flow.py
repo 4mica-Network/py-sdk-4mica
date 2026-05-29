@@ -329,6 +329,118 @@ async def test_sign_payment_v2_rejects_missing_validation_fields():
 
 
 @pytest.mark.asyncio
+async def test_sign_payment_rejects_missing_tab_endpoint():
+    # Use real X402Flow — _request_tab raises before any HTTP call
+    flow = X402Flow(StubSigner())
+    requirements = PaymentRequirementsV1(
+        scheme="4mica+pay",
+        network="testnet",
+        max_amount_required="5",
+        pay_to="0x0000000000000000000000000000000000000003",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={},  # no tabEndpoint
+    )
+    with pytest.raises(X402Error, match="missing tabEndpoint"):
+        await flow.sign_payment(
+            requirements, "0x0000000000000000000000000000000000000001"
+        )
+
+
+@pytest.mark.asyncio
+async def test_sign_payment_rejects_non_string_tab_endpoint():
+    # Use real X402Flow — invalid URL parsed before HTTP
+    flow = X402Flow(StubSigner())
+    requirements = PaymentRequirementsV1(
+        scheme="4mica+pay",
+        network="testnet",
+        max_amount_required="5",
+        pay_to="0x0000000000000000000000000000000000000003",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={"tabEndpoint": 12345},  # integer, not a valid URL
+    )
+    with pytest.raises(X402Error, match="tabEndpoint"):
+        await flow.sign_payment(
+            requirements, "0x0000000000000000000000000000000000000001"
+        )
+
+
+@pytest.mark.asyncio
+async def test_request_tab_surfaces_http_failure():
+    """A non-2xx tab-endpoint response is surfaced as X402Error."""
+    user_address = "0x0000000000000000000000000000000000000009"
+    tab_endpoint = "http://failing.test/tab"
+
+    def handler(request):
+        if request.url.path == "/tab":
+            return httpx.Response(503, json={"error": "service unavailable"})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    requirements = PaymentRequirementsV1(
+        scheme="4mica+pay",
+        network="testnet",
+        max_amount_required="5",
+        pay_to="0x00000000000000000000000000000000000000ff",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={"tabEndpoint": tab_endpoint},
+    )
+    flow = X402Flow(StubSigner(), httpx.AsyncClient(transport=transport))
+    try:
+        with pytest.raises(X402Error):
+            await flow.sign_payment(requirements, user_address)
+    finally:
+        await flow.http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_settle_payment_fails_when_facilitator_errors():
+    """A non-2xx facilitator response raises X402Error."""
+    user_address = "0x0000000000000000000000000000000000000009"
+    tab_endpoint = "http://facilitator.test/tab"
+    facilitator_url = "http://facilitator.test"
+    requirements = PaymentRequirementsV1(
+        scheme="4mica+pay",
+        network="testnet",
+        max_amount_required="5",
+        pay_to="0x00000000000000000000000000000000000000ff",
+        asset="0x0000000000000000000000000000000000000000",
+        extra={"tabEndpoint": tab_endpoint},
+    )
+
+    def handler(request):
+        if request.url.path == "/tab":
+            return httpx.Response(
+                200,
+                json={"tabId": "0x1", "userAddress": user_address, "nextReqId": "0x0"},
+            )
+        if request.url.path == "/settle":
+            return httpx.Response(402, json={"error": "payment verification failed"})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    flow = X402Flow(RecordingSigner(), httpx.AsyncClient(transport=transport))
+    try:
+        payment = await flow.sign_payment(requirements, user_address)
+        with pytest.raises(X402Error, match="settlement failed"):
+            await flow.settle_payment(payment, requirements, facilitator_url)
+    finally:
+        await flow.http.aclose()
+
+
+def test_payment_requirements_v2_from_raw_rejects_missing_amount():
+    with pytest.raises(X402Error, match="missing fields"):
+        PaymentRequirementsV2.from_raw(
+            {
+                "scheme": "4mica+pay",
+                "network": "eip155:1",
+                "payTo": "0x0000000000000000000000000000000000000003",
+                "asset": "0x0000000000000000000000000000000000000000",
+                # "amount" intentionally absent
+            }
+        )
+
+
+@pytest.mark.asyncio
 async def test_sign_payment_v2_rejects_mismatched_validation_chain_id():
     flow = StubX402Flow(StubSigner())
     accepted = PaymentRequirementsV2(

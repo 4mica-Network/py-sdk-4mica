@@ -225,6 +225,65 @@ def test_v2_eip712_field_order_matches_ts_and_core():
     ]
 
 
+def test_claims_v2_rejects_min_validation_score_over_100():
+    account = Account.from_key(PRIVATE_KEY)
+    with pytest.raises(ValueError, match="min_validation_score"):
+        PaymentGuaranteeRequestClaimsV2.new(
+            user_address=account.address,
+            recipient_address="0x0000000000000000000000000000000000000002",
+            tab_id=1,
+            req_id=0,
+            amount=1,
+            timestamp=1,
+            erc20_token=None,
+            validation_registry_address="0x0000000000000000000000000000000000000011",
+            validation_request_hash="0x" + "00" * 32,
+            validation_chain_id=1,
+            validator_address="0x0000000000000000000000000000000000000022",
+            validator_agent_id=1,
+            min_validation_score=101,
+            validation_subject_hash="0x" + "00" * 32,
+            required_validation_tag="",
+            job_hash="0x" + "11" * 32,
+        )
+
+
+@pytest.mark.asyncio
+async def test_sign_request_rejects_unsupported_scheme():
+    """Passing a non-enum scheme falls through to the else branch and raises SigningError."""
+    account = Account.from_key(PRIVATE_KEY)
+    signer = PaymentSigner(PRIVATE_KEY)
+    claims = PaymentGuaranteeRequestClaims.new(
+        account.address,
+        "0x0000000000000000000000000000000000000002",
+        tab_id=1,
+        req_id=1,
+        amount=5,
+        timestamp=1234,
+        erc20_token=None,
+    )
+    with pytest.raises(SigningError, match="unsupported signing scheme"):
+        await signer.sign_request(build_params(), claims, "not_a_scheme")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_v1_signature_unchanged_by_v2_addition():
+    """V1 EIP-712 signing produces the same result regardless of V2 support."""
+    account = Account.from_key(PRIVATE_KEY)
+    signer = PaymentSigner(PRIVATE_KEY)
+    claims = PaymentGuaranteeRequestClaims.new(
+        account.address,
+        "0x0000000000000000000000000000000000000002",
+        tab_id=42,
+        req_id=2,
+        amount=123,
+        timestamp=999,
+        erc20_token=None,
+    )
+    signature = await signer.sign_request(build_params(), claims, SigningScheme.EIP712)
+    assert signature.signature == EXPECTED_TS_V1_EIP712_SIGNATURE
+
+
 def test_v2_eip191_encoding_order_matches_ts_and_core():
     account = Account.from_key(PRIVATE_KEY)
     claims = build_v2_claims(account.address)

@@ -44,8 +44,11 @@ from .models import (
     PendingRemunerationInfo,
     RecipientPaymentInfo,
     SigningScheme,
+    SupportedTokenInfo,
+    SupportedTokensResponse,
     TabInfo,
     TabPaymentStatus,
+    TxReceiptWaitOptions,
     UserInfo,
 )
 from .signing import EvmSigner, LocalAccountSigner, PaymentSigner
@@ -123,6 +126,9 @@ __all__ = [
     "PendingRemunerationInfo",
     "RecipientPaymentInfo",
     "SigningScheme",
+    "SupportedTokenInfo",
+    "SupportedTokensResponse",
+    "TxReceiptWaitOptions",
     "VALIDATION_REQUEST_BINDING_DOMAIN_V1",
     "VALIDATION_SUBJECT_BINDING_DOMAIN_V1",
     "compute_validation_request_hash",

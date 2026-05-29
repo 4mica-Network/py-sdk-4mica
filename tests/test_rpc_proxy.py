@@ -131,6 +131,62 @@ async def test_rpc_proxy_preserves_prefixed_bearer_token():
 
 
 @pytest.mark.asyncio
+async def test_rpc_proxy_gets_supported_tokens():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/core/tokens"
+        return httpx.Response(
+            200,
+            json={
+                "chainId": 8453,
+                "tokens": [
+                    {
+                        "symbol": "USDC",
+                        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                        "decimals": 6,
+                    },
+                    {
+                        "symbol": "ETH",
+                        "address": "0x0000000000000000000000000000000000000000",
+                    },
+                ],
+            },
+        )
+
+    from fourmica_sdk.models import SupportedTokenInfo, SupportedTokensResponse
+
+    proxy = _proxy_with_transport(handler)
+    try:
+        resp = await proxy.get_supported_tokens()
+        assert isinstance(resp, SupportedTokensResponse)
+        assert resp.chain_id == 8453
+        assert all(isinstance(t, SupportedTokenInfo) for t in resp.tokens)
+        assert len(resp.tokens) == 2
+        assert resp.tokens[0].symbol == "USDC"
+        assert resp.tokens[0].decimals == 6
+        assert resp.tokens[1].symbol == "ETH"
+        assert resp.tokens[1].decimals is None
+    finally:
+        await proxy.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rpc_proxy_adds_admin_api_key_header():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("x-api-key") == "ak_test123"
+        return httpx.Response(
+            200, json={"suspended": False, "userAddress": "0xdeadbeef", "updatedAt": 0}
+        )
+
+    proxy = _proxy_with_transport(handler)
+    proxy.with_admin_api_key("ak_test123")
+    try:
+        result = await proxy.update_user_suspension("0xdeadbeef", False)
+        assert result is not None
+    finally:
+        await proxy.aclose()
+
+
+@pytest.mark.asyncio
 async def test_rpc_proxy_uses_token_provider():
     params = {
         "public_key": [1, 2, 3],

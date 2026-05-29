@@ -58,10 +58,12 @@ from .errors import (
     RequestWithdrawalError,
     TabPaymentStatusError,
 )
+from .models import TxReceiptWaitOptions
 from .utils import load_abi, normalize_address, parse_u256
 
 DEFAULT_RECEIPT_TIMEOUT_SECS = 60
 DEFAULT_RECEIPT_POLL_LATENCY_SECS = 2
+_DEFAULT_WAIT = TxReceiptWaitOptions()
 
 
 class ContractGateway:
@@ -99,6 +101,27 @@ class ContractGateway:
             return getter(signature)
         return self.contract.functions[signature]
 
+    def _decode_contract_error(self, exc: Exception) -> str:
+        """Decode a ContractCustomError selector to its ABI name, or fall back to str(exc)."""
+        from web3.exceptions import ContractCustomError
+
+        if not isinstance(exc, ContractCustomError):
+            return str(exc)
+        raw = exc.args[0] if exc.args else ""
+        selector = (raw if isinstance(raw, str) else "").replace("0x", "")[:8]
+        if len(selector) != 8:
+            return str(exc)
+        for entry in self.contract.abi:
+            if entry.get("type") == "error":
+                name = entry.get("name", "")
+                inputs = entry.get("inputs", [])
+                sig = f"{name}({','.join(i['type'] for i in inputs)})"
+                from eth_utils import keccak
+
+                if keccak(text=sig).hex()[:8] == selector:
+                    return f"{name}()" if not inputs else f"{name}({inputs})"
+        return f"unknown custom error: 0x{selector}"
+
     async def aclose(self) -> None:
         provider = getattr(self.w3, "provider", None)
         if provider is None:
@@ -115,8 +138,13 @@ class ContractGateway:
             if hasattr(result, "__await__"):
                 await result
 
-    async def _build_and_send(self, txn: Dict[str, Any]) -> Dict[str, Any]:
+    async def _build_and_send(
+        self,
+        txn: Dict[str, Any],
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> Dict[str, Any]:
         """Sign, broadcast, and wait for receipt."""
+        opts = wait_options or _DEFAULT_WAIT
         try:
             signed = self.account.sign_transaction(txn)
             raw_tx = getattr(signed, "raw_transaction", None)
@@ -126,18 +154,31 @@ class ContractGateway:
                 raise ContractError("SignedTransaction missing raw_transaction")
             tx_hash = await self.w3.eth.send_raw_transaction(raw_tx)
             receipt = await self.w3.eth.wait_for_transaction_receipt(
-                tx_hash, timeout=60, poll_latency=2
+                tx_hash,
+                timeout=opts.timeout_secs,
+                poll_latency=opts.poll_latency_secs,
             )
             receipt_dict = dict(receipt)
             status = receipt_dict.get("status")
+            tx_hash_hex = "0x" + (
+                tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+            )
             if status in (0, "0x0", False):
-                tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
                 raise ContractError(f"transaction reverted: {tx_hash_hex}")
+            receipt_dict["transactionHash"] = tx_hash_hex
             return receipt_dict
         except Exception as exc:
             raise ContractError(str(exc)) from exc
 
     async def _prepare_tx(self, func, value: int = 0) -> Dict[str, Any]:
+        call_params: Dict[str, Any] = {"from": self.account.address}
+        if value:
+            call_params["value"] = value
+        try:
+            await func.call(call_params)
+        except Exception as exc:
+            raise ContractError(self._decode_contract_error(exc)) from exc
+
         nonce = await self.w3.eth.get_transaction_count(self.account.address)
         base = {
             "from": self.account.address,
@@ -192,8 +233,12 @@ class ContractGateway:
         return actual
 
     async def approve_erc20(
-        self, token_address: str, amount: int
+        self,
+        token_address: str,
+        amount: int,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> Optional[Dict[str, Any]]:
+        opts = wait_options or _DEFAULT_WAIT
         try:
             contract = self._erc20(token_address)
             target = parse_u256(amount)
@@ -209,7 +254,7 @@ class ContractGateway:
                 func = contract.functions.approve(self.contract_address, value)
                 tx = await self._prepare_tx(func)
                 built = await self._build_tx(func, tx)
-                return await self._build_and_send(built)
+                return await self._build_and_send(built, opts)
 
             try:
                 receipt = await send_approve(target)
@@ -221,7 +266,9 @@ class ContractGateway:
                 await send_approve(0)
                 receipt = await send_approve(target)
 
-            actual = await self._wait_for_erc20_allowance(contract, target)
+            actual = await self._wait_for_erc20_allowance(
+                contract, target, opts.timeout_secs, opts.poll_latency_secs
+            )
             if actual < target:
                 raise ContractError(
                     f"ERC20 allowance verification failed: on-chain allowance is "
@@ -235,7 +282,10 @@ class ContractGateway:
             raise ApproveErc20Error(str(exc)) from exc
 
     async def deposit(
-        self, amount: int, erc20_token: Optional[str] = None
+        self,
+        amount: int,
+        erc20_token: Optional[str] = None,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> Dict[str, Any]:
         try:
             if erc20_token:
@@ -249,15 +299,20 @@ class ContractGateway:
                 func = self.contract.functions.deposit()
                 tx = await self._prepare_tx(func, value=parse_u256(amount))
                 built = await self._build_tx(func, tx)
-            return await self._build_and_send(built)
+            return await self._build_and_send(built, wait_options)
         except Exception as exc:
             raise DepositError(str(exc)) from exc
 
-    async def get_user_assets(self) -> List[Dict[str, Any]]:
+    async def get_user_assets(
+        self, block_number: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         try:
+            call_kwargs: Dict[str, Any] = {}
+            if block_number is not None:
+                call_kwargs["block_identifier"] = block_number
             result = await self.contract.functions.getUserAllAssets(
                 self.account.address
-            ).call()
+            ).call(**call_kwargs)
         except Exception as exc:
             raise GetUserError(str(exc)) from exc
 
@@ -311,7 +366,12 @@ class ContractGateway:
         }
 
     async def pay_tab_eth(
-        self, tab_id: int, req_id: int, amount: int, recipient: str
+        self,
+        tab_id: int,
+        req_id: int,
+        amount: int,
+        recipient: str,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> Dict[str, Any]:
         try:
             data = f"tab_id:{hex(int(tab_id))};req_id:{hex(int(req_id))}".encode()
@@ -328,14 +388,22 @@ class ContractGateway:
                 tx["gasPrice"] = await self.w3.eth.gas_price
             except Exception:
                 pass
-            return await self._build_and_send(tx)
+            return await self._build_and_send(tx, wait_options)
         except Exception as exc:
             raise PayTabError(str(exc)) from exc
 
     async def pay_tab_erc20(
-        self, tab_id: int, amount: int, erc20_token: str, recipient: str
+        self,
+        tab_id: int,
+        amount: int,
+        erc20_token: str,
+        recipient: str,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> Dict[str, Any]:
         try:
+            # payTabInERC20Token uses safeTransferFrom, so the contract must be
+            # an approved spender. Auto-approve if the current allowance is insufficient.
+            await self.approve_erc20(erc20_token, amount, wait_options)
             func = self.contract.functions.payTabInERC20Token(
                 parse_u256(tab_id),
                 normalize_address(erc20_token),
@@ -344,12 +412,15 @@ class ContractGateway:
             )
             tx = await self._prepare_tx(func)
             built = await self._build_tx(func, tx)
-            return await self._build_and_send(built)
+            return await self._build_and_send(built, wait_options)
         except Exception as exc:
             raise PayTabError(str(exc)) from exc
 
     async def request_withdrawal(
-        self, amount: int, erc20_token: Optional[str]
+        self,
+        amount: int,
+        erc20_token: Optional[str],
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> Dict[str, Any]:
         try:
             if erc20_token:
@@ -361,11 +432,15 @@ class ContractGateway:
                 func = self._fn("requestWithdrawal(uint256)")(parse_u256(amount))
             tx = await self._prepare_tx(func)
             built = await self._build_tx(func, tx)
-            return await self._build_and_send(built)
+            return await self._build_and_send(built, wait_options)
         except Exception as exc:
             raise RequestWithdrawalError(str(exc)) from exc
 
-    async def cancel_withdrawal(self, erc20_token: Optional[str]) -> Dict[str, Any]:
+    async def cancel_withdrawal(
+        self,
+        erc20_token: Optional[str],
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> Dict[str, Any]:
         try:
             if erc20_token:
                 func = self._fn("cancelWithdrawal(address)")(
@@ -375,11 +450,15 @@ class ContractGateway:
                 func = self._fn("cancelWithdrawal()")()
             tx = await self._prepare_tx(func)
             built = await self._build_tx(func, tx)
-            return await self._build_and_send(built)
+            return await self._build_and_send(built, wait_options)
         except Exception as exc:
             raise CancelWithdrawalError(str(exc)) from exc
 
-    async def finalize_withdrawal(self, erc20_token: Optional[str]) -> Dict[str, Any]:
+    async def finalize_withdrawal(
+        self,
+        erc20_token: Optional[str],
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> Dict[str, Any]:
         try:
             if erc20_token:
                 func = self._fn("finalizeWithdrawal(address)")(
@@ -389,12 +468,15 @@ class ContractGateway:
                 func = self._fn("finalizeWithdrawal()")()
             tx = await self._prepare_tx(func)
             built = await self._build_tx(func, tx)
-            return await self._build_and_send(built)
+            return await self._build_and_send(built, wait_options)
         except Exception as exc:
             raise FinalizeWithdrawalError(str(exc)) from exc
 
     async def remunerate(
-        self, claims_blob: bytes, signature_words: List[bytes]
+        self,
+        claims_blob: bytes,
+        signature_words: List[bytes],
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> Dict[str, Any]:
         try:
             sig_struct = [
@@ -404,14 +486,10 @@ class ContractGateway:
                 for word in signature_words
             ]
             func = self.contract.functions.remunerate(claims_blob, sig_struct)
-            try:
-                await func.call()
-            except Exception as exc:
-                raise RemunerateError(str(exc)) from exc
             tx = await self._prepare_tx(func)
             built = await self._build_tx(func, tx)
-            return await self._build_and_send(built)
+            return await self._build_and_send(built, wait_options)
+        except ContractError as exc:
+            raise RemunerateError(str(exc)) from exc
         except Exception as exc:
-            if isinstance(exc, RemunerateError):
-                raise
             raise RemunerateError(str(exc)) from exc
