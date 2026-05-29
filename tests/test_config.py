@@ -69,3 +69,12 @@ def test_config_builder_reads_auth_env(monkeypatch):
     assert cfg.auth is not None
     assert cfg.auth.auth_url == "https://auth.example.com"
     assert cfg.auth.refresh_margin_secs == 120
+
+
+def test_config_builder_reads_bearer_token_from_env(monkeypatch):
+    monkeypatch.setenv("4MICA_RPC_URL", "https://example.com")
+    monkeypatch.setenv("4MICA_WALLET_PRIVATE_KEY", "11" * 32)
+    monkeypatch.setenv("4MICA_BEARER_TOKEN", "my-static-token")
+    monkeypatch.delenv("4MICA_AUTH_URL", raising=False)
+    cfg = ConfigBuilder().from_env().build()
+    assert cfg.bearer_token == "my-static-token"

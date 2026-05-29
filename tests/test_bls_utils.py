@@ -30,3 +30,11 @@ def test_signature_to_words_supports_current_py_ecc_api():
     assert len(words) == 8
     assert all(isinstance(word, bytes) for word in words)
     assert all(len(word) == 32 for word in words)
+
+
+def test_signature_to_words_rejects_invalid_hex():
+    pytest.importorskip("py_ecc")
+    with pytest.raises(VerificationError, match="invalid BLS signature"):
+        signature_to_words(
+            "0xGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+        )

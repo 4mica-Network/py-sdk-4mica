@@ -33,6 +33,7 @@ from .models import (
     SigningScheme,
     TabInfo,
     TabPaymentStatus,
+    TxReceiptWaitOptions,
     UserInfo,
 )
 from .rpc import RpcProxy
@@ -140,15 +141,22 @@ class Client:
         gateway: ContractGateway, params: CorePublicParameters
     ) -> tuple[bytes, Dict[int, bytes]]:
         try:
+            # V1 domain is always the contract's canonical guaranteeDomainSeparator —
+            # matches TS SDK which reads it via gateway.getGuaranteeDomain().
+            v1_domain = bytes(
+                await gateway.contract.functions.guaranteeDomainSeparator().call()
+            )
+
             if params.active_guarantee_domain_separator:
-                domain = bytes.fromhex(
+                active_domain = bytes.fromhex(
                     params.active_guarantee_domain_separator.removeprefix("0x")
                 )
                 guarantee_domains: Dict[int, bytes] = {
-                    v: domain for v in params.accepted_guarantee_versions_or_default()
+                    v: active_domain
+                    for v in params.accepted_guarantee_versions_or_default()
                 }
-                guarantee_domains.setdefault(1, domain)
-                return domain, guarantee_domains
+                guarantee_domains[1] = v1_domain
+                return active_domain, guarantee_domains
 
             accepted_versions = params.accepted_guarantee_versions_or_default()
             guarantee_domains = {}
@@ -158,19 +166,14 @@ class Client:
                 if config["enabled"]:
                     guarantee_domains[int(version)] = bytes(config["domain_separator"])
 
+            guarantee_domains[1] = v1_domain
+
             if params.max_accepted_guarantee_version in guarantee_domains:
                 active_guarantee_domain = guarantee_domains[
                     params.max_accepted_guarantee_version
                 ]
             else:
-                active_guarantee_domain = (
-                    await gateway.contract.functions.guaranteeDomainSeparator().call()
-                )
-
-            if 1 not in guarantee_domains:
-                guarantee_domains[1] = bytes(
-                    await gateway.contract.functions.guaranteeDomainSeparator().call()
-                )
+                active_guarantee_domain = v1_domain
 
             return bytes(active_guarantee_domain), guarantee_domains
         except Exception as exc:
@@ -216,14 +219,24 @@ class UserClient:
     def guarantee_domains(self) -> Dict[int, bytes]:
         return self.client.guarantee_domains
 
-    async def approve_erc20(self, token: str, amount: int) -> Optional[dict]:
-        return await self.client.gateway.approve_erc20(token, amount)
+    async def approve_erc20(
+        self,
+        token: str,
+        amount: int,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> Optional[dict]:
+        return await self.client.gateway.approve_erc20(token, amount, wait_options)
 
-    async def deposit(self, amount: int, erc20_token: Optional[str] = None) -> dict:
-        return await self.client.gateway.deposit(amount, erc20_token)
+    async def deposit(
+        self,
+        amount: int,
+        erc20_token: Optional[str] = None,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> dict:
+        return await self.client.gateway.deposit(amount, erc20_token, wait_options)
 
-    async def get_user(self) -> List[UserInfo]:
-        assets = await self.client.gateway.get_user_assets()
+    async def get_user(self, block_number: Optional[int] = None) -> List[UserInfo]:
+        assets = await self.client.gateway.get_user_assets(block_number=block_number)
         return [
             UserInfo(
                 asset=a["asset"],
@@ -261,13 +274,24 @@ class UserClient:
         amount: Optional[int] = None,
         recipient_address: Optional[str] = None,
         erc20_token: Optional[str] = None,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> dict:
         if req_id is None or amount is None or recipient_address is None:
+            tab = await self.client.recipient.get_tab(tab_id)
+            if not tab:
+                raise ValueError(f"Tab {tab_id} not found")
             guarantee = await self.client.recipient.get_latest_guarantee(tab_id)
             if not guarantee:
                 raise ValueError(f"Tab {tab_id} has no guarantee")
+            remaining = (
+                tab.total_amount - tab.paid_amount
+                if tab.total_amount > tab.paid_amount
+                else 0
+            )
+            if remaining == 0:
+                raise ValueError(f"Tab {tab_id} is already fully paid")
             req_id = guarantee.req_id
-            amount = guarantee.amount
+            amount = remaining
             recipient_address = guarantee.to_address
             erc20_token = (
                 guarantee.asset_address
@@ -277,22 +301,35 @@ class UserClient:
             )
         if erc20_token:
             return await self.client.gateway.pay_tab_erc20(
-                tab_id, amount, erc20_token, recipient_address
+                tab_id, amount, erc20_token, recipient_address, wait_options
             )
         return await self.client.gateway.pay_tab_eth(
-            tab_id, req_id, amount, recipient_address
+            tab_id, req_id, amount, recipient_address, wait_options
         )
 
     async def request_withdrawal(
-        self, amount: int, erc20_token: Optional[str] = None
+        self,
+        amount: int,
+        erc20_token: Optional[str] = None,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
     ) -> dict:
-        return await self.client.gateway.request_withdrawal(amount, erc20_token)
+        return await self.client.gateway.request_withdrawal(
+            amount, erc20_token, wait_options
+        )
 
-    async def cancel_withdrawal(self, erc20_token: Optional[str] = None) -> dict:
-        return await self.client.gateway.cancel_withdrawal(erc20_token)
+    async def cancel_withdrawal(
+        self,
+        erc20_token: Optional[str] = None,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> dict:
+        return await self.client.gateway.cancel_withdrawal(erc20_token, wait_options)
 
-    async def finalize_withdrawal(self, erc20_token: Optional[str] = None) -> dict:
-        return await self.client.gateway.finalize_withdrawal(erc20_token)
+    async def finalize_withdrawal(
+        self,
+        erc20_token: Optional[str] = None,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> dict:
+        return await self.client.gateway.finalize_withdrawal(erc20_token, wait_options)
 
 
 class RecipientClient:
@@ -326,7 +363,12 @@ class RecipientClient:
         erc20_token: Optional[str],
         ttl: Optional[int],
         guarantee_version: int = 1,
-    ) -> int:
+    ) -> tuple[int, str, int]:
+        """Create a payment tab.
+
+        Returns:
+            (tab_id, asset_address, next_req_id)
+        """
         self._check_signer(recipient_address, CreateTabError)
         body = {
             "user_address": user_address,
@@ -339,7 +381,19 @@ class RecipientClient:
             result = await self.client.rpc.create_payment_tab(body)
         except RpcError as exc:
             raise CreateTabError(str(exc), status_code=exc.status_code) from exc
-        return parse_u256(result["id"])
+        tab_id = parse_u256(
+            result.get("id") or result.get("tab_id") or result.get("tabId") or 0
+        )
+        erc20_raw = result.get("erc20_token") or result.get("erc20Token")
+        asset_address = (
+            normalize_address(erc20_raw)
+            if erc20_raw
+            else "0x0000000000000000000000000000000000000000"
+        )
+        next_req_id = parse_u256(
+            result.get("next_req_id") or result.get("nextReqId") or 0
+        )
+        return tab_id, asset_address, next_req_id
 
     async def get_tab_payment_status(self, tab_id: int) -> TabPaymentStatus:
         status = await self.client.gateway.get_payment_status(tab_id)
@@ -368,7 +422,7 @@ class RecipientClient:
     def verify_payment_guarantee(self, cert: BLSCert) -> PaymentGuaranteeClaims:
         try:
             claims_bytes = bytes.fromhex(cert.claims.removeprefix("0x"))
-        except ValueError as exc:
+        except (ValueError, AttributeError, TypeError) as exc:
             raise VerifyGuaranteeError(
                 "invalid BLS certificate claims encoding"
             ) from exc
@@ -391,7 +445,11 @@ class RecipientClient:
             raise VerifyGuaranteeError("guarantee domain mismatch")
         return claims
 
-    async def remunerate(self, cert: BLSCert) -> dict:
+    async def remunerate(
+        self,
+        cert: BLSCert,
+        wait_options: Optional[TxReceiptWaitOptions] = None,
+    ) -> dict:
         try:
             self.verify_payment_guarantee(cert)
         except VerifyGuaranteeError as exc:
@@ -401,7 +459,9 @@ class RecipientClient:
             claims_bytes = bytes.fromhex(cert.claims.removeprefix("0x"))
         except VerificationError as exc:
             raise RemunerateError(str(exc)) from exc
-        return await self.client.gateway.remunerate(claims_bytes, sig_words)
+        return await self.client.gateway.remunerate(
+            claims_bytes, sig_words, wait_options
+        )
 
     async def list_settled_tabs(self) -> List[TabInfo]:
         try:

@@ -42,7 +42,7 @@ class ConfigBuilder:
         self._ethereum_http_rpc_url: Optional[str] = None
         self._contract_address: Optional[str] = None
         self._bearer_token: Optional[str] = None
-        self._auth_enabled: bool = False
+        self._auth_enabled: bool = True
         self._auth_url: Optional[str] = None
         self._auth_refresh_margin_secs: Optional[Union[int, str]] = 60
 

@@ -29,6 +29,8 @@ TAB_RAW: dict[str, Any] = {
     "settlement_status": "PENDING",
     "created_at": 1000,
     "updated_at": 1000,
+    "total_amount": "5000",
+    "paid_amount": "0",
 }
 
 GUARANTEE_RAW: dict[str, Any] = {
@@ -174,20 +176,24 @@ async def test_user_client_list_tabs_empty():
 
 @pytest.mark.asyncio
 async def test_pay_tab_auto_resolves_erc20_from_guarantee():
+    tab = TabInfo.from_rpc(TAB_RAW)  # total_amount=5000, paid_amount=0 → remaining=5000
     guarantee = GuaranteeInfo.from_rpc(GUARANTEE_RAW)
 
     proxy = _proxy_with_transport(lambda r: httpx.Response(200, json=[]))
     try:
         client_stub = _make_client_stub(PAYER, proxy)
+        client_stub.recipient.get_tab = AsyncMock(return_value=tab)
         client_stub.recipient.get_latest_guarantee = AsyncMock(return_value=guarantee)
         client_stub.gateway.pay_tab_erc20 = AsyncMock(return_value={"tx": "0xabc"})
 
         user = UserClient(client_stub)
         result = await user.pay_tab(42)
 
+        client_stub.recipient.get_tab.assert_awaited_once_with(42)
         client_stub.recipient.get_latest_guarantee.assert_awaited_once_with(42)
+        # pays remaining (total - paid = 5000), not guarantee.amount
         client_stub.gateway.pay_tab_erc20.assert_awaited_once_with(
-            42, guarantee.amount, USDC, RECIPIENT.lower()
+            42, 5000, USDC, RECIPIENT.lower(), None
         )
         assert result == {"tx": "0xabc"}
     finally:
@@ -195,13 +201,45 @@ async def test_pay_tab_auto_resolves_erc20_from_guarantee():
 
 
 @pytest.mark.asyncio
+async def test_pay_tab_uses_remaining_not_guarantee_amount():
+    """Partial payment: remaining = total_amount - paid_amount, not guarantee.amount."""
+    tab_raw = {**TAB_RAW, "total_amount": "8000", "paid_amount": "3000"}
+    guarantee_raw = {**GUARANTEE_RAW, "amount": "8000"}  # full original amount
+    tab = TabInfo.from_rpc(tab_raw)
+    guarantee = GuaranteeInfo.from_rpc(guarantee_raw)
+
+    proxy = _proxy_with_transport(lambda r: httpx.Response(200, json=[]))
+    try:
+        client_stub = _make_client_stub(PAYER, proxy)
+        client_stub.recipient.get_tab = AsyncMock(return_value=tab)
+        client_stub.recipient.get_latest_guarantee = AsyncMock(return_value=guarantee)
+        client_stub.gateway.pay_tab_erc20 = AsyncMock(return_value={"tx": "0xabc"})
+
+        user = UserClient(client_stub)
+        await user.pay_tab(42)
+
+        client_stub.gateway.pay_tab_erc20.assert_awaited_once_with(
+            42,
+            5000,
+            USDC,
+            RECIPIENT.lower(),
+            None,  # remaining = 8000 - 3000
+        )
+    finally:
+        await proxy.aclose()
+
+
+@pytest.mark.asyncio
 async def test_pay_tab_auto_resolves_eth_when_zero_asset():
+    tab_raw = {**TAB_RAW, "asset_address": ETH_ZERO}
     eth_guarantee_raw = {**GUARANTEE_RAW, "asset_address": ETH_ZERO}
+    tab = TabInfo.from_rpc(tab_raw)
     guarantee = GuaranteeInfo.from_rpc(eth_guarantee_raw)
 
     proxy = _proxy_with_transport(lambda r: httpx.Response(200, json=[]))
     try:
         client_stub = _make_client_stub(PAYER, proxy)
+        client_stub.recipient.get_tab = AsyncMock(return_value=tab)
         client_stub.recipient.get_latest_guarantee = AsyncMock(return_value=guarantee)
         client_stub.gateway.pay_tab_eth = AsyncMock(return_value={"tx": "0xdef"})
 
@@ -209,7 +247,11 @@ async def test_pay_tab_auto_resolves_eth_when_zero_asset():
         result = await user.pay_tab(42)
 
         client_stub.gateway.pay_tab_eth.assert_awaited_once_with(
-            42, guarantee.req_id, guarantee.amount, RECIPIENT.lower()
+            42,
+            guarantee.req_id,
+            5000,
+            RECIPIENT.lower(),
+            None,  # remaining = 5000
         )
         assert result == {"tx": "0xdef"}
     finally:
@@ -217,14 +259,50 @@ async def test_pay_tab_auto_resolves_eth_when_zero_asset():
 
 
 @pytest.mark.asyncio
-async def test_pay_tab_raises_when_no_guarantee():
+async def test_pay_tab_raises_when_tab_not_found():
     proxy = _proxy_with_transport(lambda r: httpx.Response(200, json=[]))
     try:
         client_stub = _make_client_stub(PAYER, proxy)
+        client_stub.recipient.get_tab = AsyncMock(return_value=None)
+
+        user = UserClient(client_stub)
+        with pytest.raises(ValueError, match="not found"):
+            await user.pay_tab(42)
+    finally:
+        await proxy.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pay_tab_raises_when_no_guarantee():
+    tab = TabInfo.from_rpc(TAB_RAW)
+
+    proxy = _proxy_with_transport(lambda r: httpx.Response(200, json=[]))
+    try:
+        client_stub = _make_client_stub(PAYER, proxy)
+        client_stub.recipient.get_tab = AsyncMock(return_value=tab)
         client_stub.recipient.get_latest_guarantee = AsyncMock(return_value=None)
 
         user = UserClient(client_stub)
         with pytest.raises(ValueError, match="no guarantee"):
+            await user.pay_tab(42)
+    finally:
+        await proxy.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pay_tab_raises_when_already_fully_paid():
+    tab_raw = {**TAB_RAW, "total_amount": "5000", "paid_amount": "5000"}
+    guarantee = GuaranteeInfo.from_rpc(GUARANTEE_RAW)
+    tab = TabInfo.from_rpc(tab_raw)
+
+    proxy = _proxy_with_transport(lambda r: httpx.Response(200, json=[]))
+    try:
+        client_stub = _make_client_stub(PAYER, proxy)
+        client_stub.recipient.get_tab = AsyncMock(return_value=tab)
+        client_stub.recipient.get_latest_guarantee = AsyncMock(return_value=guarantee)
+
+        user = UserClient(client_stub)
+        with pytest.raises(ValueError, match="already fully paid"):
             await user.pay_tab(42)
     finally:
         await proxy.aclose()
@@ -246,10 +324,50 @@ async def test_pay_tab_explicit_params_skip_guarantee_lookup():
             erc20_token=USDC,
         )
 
-        client_stub.recipient.get_latest_guarantee.assert_not_called()
+        client_stub.recipient.get_tab.assert_not_called()
         client_stub.gateway.pay_tab_erc20.assert_awaited_once_with(
-            42, 5000, USDC, RECIPIENT
+            42, 5000, USDC, RECIPIENT, None
         )
         assert result == {"tx": "0xfed"}
     finally:
         await proxy.aclose()
+
+
+# ---------------------------------------------------------------------------
+# TabInfo model — total_amount / paid_amount
+# ---------------------------------------------------------------------------
+
+
+def test_tab_info_from_rpc_parses_total_and_paid_amount():
+    raw = {**TAB_RAW, "total_amount": "12000", "paid_amount": "3000"}
+    tab = TabInfo.from_rpc(raw)
+    assert tab.total_amount == 12000
+    assert tab.paid_amount == 3000
+
+
+def test_tab_info_from_rpc_camel_case_keys():
+    raw = {
+        "tabId": "99",
+        "userAddress": PAYER.lower(),
+        "recipientAddress": RECIPIENT.lower(),
+        "assetAddress": USDC,
+        "startTimestamp": 1000,
+        "ttlSeconds": 3600,
+        "status": "OPEN",
+        "settlementStatus": "PENDING",
+        "createdAt": 1000,
+        "updatedAt": 1000,
+        "totalAmount": "7500",
+        "paidAmount": "2500",
+    }
+    tab = TabInfo.from_rpc(raw)
+    assert tab.tab_id == 99
+    assert tab.total_amount == 7500
+    assert tab.paid_amount == 2500
+
+
+def test_tab_info_from_rpc_defaults_amounts_to_zero_when_absent():
+    raw = {k: v for k, v in TAB_RAW.items() if k not in ("total_amount", "paid_amount")}
+    tab = TabInfo.from_rpc(raw)
+    assert tab.total_amount == 0
+    assert tab.paid_amount == 0

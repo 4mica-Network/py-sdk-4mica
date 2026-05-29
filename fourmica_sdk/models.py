@@ -37,6 +37,15 @@ class PaymentGuaranteeRequestClaims:
     timestamp: int
     asset_address: str
 
+    def __post_init__(self) -> None:
+        self.user_address = normalize_address(self.user_address)
+        self.recipient_address = normalize_address(self.recipient_address)
+        self.tab_id = parse_u256(self.tab_id)
+        self.req_id = parse_u256(self.req_id)
+        self.amount = parse_u256(self.amount)
+        self.timestamp = int(self.timestamp)
+        self.asset_address = normalize_address(self.asset_address)
+
     @classmethod
     def new(
         cls,
@@ -120,13 +129,7 @@ class PaymentGuaranteeRequestClaimsV2(PaymentGuaranteeRequestClaims):
     job_hash: str
 
     def __post_init__(self) -> None:
-        self.user_address = normalize_address(self.user_address)
-        self.recipient_address = normalize_address(self.recipient_address)
-        self.tab_id = parse_u256(self.tab_id)
-        self.req_id = parse_u256(self.req_id)
-        self.amount = parse_u256(self.amount)
-        self.timestamp = int(self.timestamp)
-        self.asset_address = normalize_address(self.asset_address)
+        super().__post_init__()
         self.validation_registry_address = normalize_address(
             self.validation_registry_address
         )
@@ -282,6 +285,8 @@ class TabInfo:
     settlement_status: str
     created_at: int
     updated_at: int
+    total_amount: int = 0
+    paid_amount: int = 0
 
     @classmethod
     def from_rpc(cls, raw: Dict[str, Any]) -> "TabInfo":
@@ -296,6 +301,8 @@ class TabInfo:
             settlement_status=_get_any(raw, "settlement_status", "settlementStatus"),
             created_at=int(_get_any(raw, "created_at", "createdAt")),
             updated_at=int(_get_any(raw, "updated_at", "updatedAt")),
+            total_amount=parse_u256(_get_any(raw, "total_amount", "totalAmount") or 0),
+            paid_amount=parse_u256(_get_any(raw, "paid_amount", "paidAmount") or 0),
         )
 
 
@@ -420,6 +427,38 @@ class RecipientPaymentInfo:
         )
 
 
+@dataclass
+class SupportedTokenInfo:
+    symbol: str
+    address: str
+    decimals: Optional[int] = None
+
+
+@dataclass
+class SupportedTokensResponse:
+    chain_id: int
+    tokens: List["SupportedTokenInfo"]
+
+    @classmethod
+    def from_rpc(cls, raw: Dict[str, Any]) -> "SupportedTokensResponse":
+        chain_id = int(_get_any(raw, "chain_id", "chainId") or 0)
+        tokens = [
+            SupportedTokenInfo(
+                symbol=t.get("symbol", ""),
+                address=t.get("address", ""),
+                decimals=int(t["decimals"]) if t.get("decimals") is not None else None,
+            )
+            for t in raw.get("tokens", [])
+        ]
+        return cls(chain_id=chain_id, tokens=tokens)
+
+
+@dataclass
+class TxReceiptWaitOptions:
+    timeout_secs: int = 60
+    poll_latency_secs: int = 2
+
+
 __all__: List[str] = [
     "AssetBalanceInfo",
     "BLSCert",
@@ -433,7 +472,10 @@ __all__: List[str] = [
     "PendingRemunerationInfo",
     "RecipientPaymentInfo",
     "SigningScheme",
+    "SupportedTokenInfo",
+    "SupportedTokensResponse",
     "TabInfo",
     "TabPaymentStatus",
+    "TxReceiptWaitOptions",
     "UserInfo",
 ]

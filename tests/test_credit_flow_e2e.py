@@ -305,42 +305,34 @@ async def _resolve_token_metadata(
         return normalize_address(token_address), int(decimals), str(symbol)
 
     try:
-        tokens = await payer_client.rpc.get_supported_tokens()
+        tokens_resp = await payer_client.rpc.get_supported_tokens()
     except Exception as exc:
         raise RuntimeError(
             f"GET /core/tokens failed ({exc}). Set E2E_TOKEN_ADDRESS and "
             "E2E_TOKEN_DECIMALS to bypass token discovery."
         ) from exc
 
-    if isinstance(tokens, dict):
-        supported_tokens = tokens.get("tokens") or []
-    else:
-        supported_tokens = tokens or []
+    supported_tokens = tokens_resp.tokens
 
     preferred = next(
-        (
-            token
-            for token in supported_tokens
-            if str(token.get("symbol", "")).upper() == "USDC"
-        ),
+        (t for t in supported_tokens if t.symbol.upper() == "USDC"),
         supported_tokens[0] if supported_tokens else None,
     )
     if preferred is None:
         raise RuntimeError("could not resolve an ERC20 token address for e2e")
 
-    discovered_address = preferred.get("address") or preferred.get("tokenAddress")
-    if not discovered_address:
+    if not preferred.address:
         raise RuntimeError("supported token entry is missing an address")
 
-    decimals = preferred.get("decimals")
+    decimals = preferred.decimals
     if decimals is None:
-        contract = payer_client.gateway._erc20(discovered_address)
+        contract = payer_client.gateway._erc20(preferred.address)
         decimals = await contract.functions.decimals().call()
 
     return (
-        normalize_address(discovered_address),
+        normalize_address(preferred.address),
         int(decimals),
-        str(preferred.get("symbol", "TOKEN")),
+        preferred.symbol or "TOKEN",
     )
 
 
@@ -874,7 +866,7 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             paid_req_id = paid_claims.req_id
             print(f"[e2e] signature: {paid_signature[:20]}...")
         else:
-            paid_tab_id = await recipient.recipient.create_tab(
+            paid_tab_id, _, _ = await recipient.recipient.create_tab(
                 payer_address, recipient_address, erc20_token, tab_ttl
             )
             latest_before = await recipient.recipient.get_latest_guarantee(paid_tab_id)
@@ -1043,7 +1035,7 @@ async def test_credit_flow_tracks_lock_unlock_remuneration_and_withdrawal():
             rem_tab_id = rem_claims.tab_id
             rem_req_id = rem_claims.req_id
         else:
-            rem_tab_id = await recipient.recipient.create_tab(
+            rem_tab_id, _, _ = await recipient.recipient.create_tab(
                 payer_address, recipient_address, erc20_token, tab_ttl
             )
             rem_latest_before = await recipient.recipient.get_latest_guarantee(
@@ -1383,7 +1375,7 @@ async def test_credit_flow_v2_guarantee_when_validation_config_available():
             req_id = claims_v2.req_id
             print(f"[e2e-v2] signature: {signed_v2_signature[:20]}...")
         else:
-            tab_id = await recipient.recipient.create_tab(
+            tab_id, _, _ = await recipient.recipient.create_tab(
                 payer_address, recipient_address, erc20_token, tab_ttl
             )
             latest_before = await recipient.recipient.get_latest_guarantee(tab_id)
