@@ -200,6 +200,11 @@ class Client:
             raise AuthConfigError("auth is not enabled for this client")
         return await self._auth_session.login()
 
+    async def logout(self) -> None:
+        if self._auth_session is None:
+            raise AuthConfigError("auth is not enabled for this client")
+        await self._auth_session.logout()
+
     async def __aenter__(self) -> "Client":
         return self
 

@@ -176,7 +176,8 @@ cfg = (
 )
 
 client = await Client.new(cfg)
-await client.login()  # optional: first RPC call also triggers auth
+await client.login()   # optional: first RPC call also triggers auth
+await client.logout()  # invalidates the session and clears cached tokens
 ```
 
 Or use a static token:
@@ -685,44 +686,71 @@ Run them explicitly when the environment is available:
 
 ## API Methods Summary
 
-### UserClient Methods
+### Client Methods
 
-- `approve_erc20(token, amount)`
-- `deposit(amount, erc20_token=None)`
-- `get_user()`
-- `get_tab_payment_status(tab_id)`
-- `sign_payment(claims, scheme=SigningScheme.EIP712)`
-- `pay_tab(tab_id, req_id, amount, recipient_address, erc20_token=None)`
-- `request_withdrawal(amount, erc20_token=None)`
-- `cancel_withdrawal(erc20_token=None)`
-- `finalize_withdrawal(erc20_token=None)`
+- `login()` → `AuthTokens` — trigger SIWE auth and cache tokens (requires `enable_auth()` or `auth_url`)
+- `logout()` — invalidate the auth session and clear cached tokens
+- `aclose()` — close all underlying connections (HTTP client, gateway, auth session)
 
-### RecipientClient Methods
+### UserClient Methods (`client.user`)
 
-- `create_tab(user_address, recipient_address, erc20_token, ttl, guarantee_version=1)`
-- `get_tab_payment_status(tab_id)`
-- `issue_payment_guarantee(claims, signature, scheme)`
-- `verify_payment_guarantee(cert)`
-- `remunerate(cert)`
-- `list_settled_tabs()`
-- `list_pending_remunerations()`
-- `get_tab(tab_id)`
-- `list_recipient_tabs(settlement_statuses=None)`
-- `get_tab_guarantees(tab_id)`
-- `get_latest_guarantee(tab_id)`
-- `get_guarantee(tab_id, req_id)`
-- `list_recipient_payments()`
-- `get_collateral_events_for_tab(tab_id)`
-- `get_user_asset_balance(user_address, asset_address)`
+All methods that send on-chain transactions accept an optional `wait_options: TxReceiptWaitOptions`
+argument (defaults to 60 s timeout, 2 s poll interval).
 
-### Admin / RPC Methods
+- `approve_erc20(token, amount, wait_options=None)` — approve the Core4Mica contract to spend an ERC20 token; skips if allowance is already sufficient
+- `deposit(amount, erc20_token=None, wait_options=None)` — deposit ETH or ERC20 collateral
+- `get_user(block_number=None)` → `List[UserInfo]` — collateral balances for all assets at an optional block
+- `get_tab_payment_status(tab_id)` → `TabPaymentStatus`
+- `sign_payment(claims, scheme=SigningScheme.EIP712)` → `PaymentSignature`
+- `list_tabs(settlement_statuses=None)` → `List[TabInfo]` — list tabs for the authenticated user, optionally filtered by settlement status
+- `pay_tab(tab_id, req_id=None, amount=None, recipient_address=None, erc20_token=None, wait_options=None)` — pay a tab on-chain; when `req_id`, `amount`, or `recipient_address` are omitted the SDK fetches the latest guarantee automatically
+- `request_withdrawal(amount, erc20_token=None, wait_options=None)`
+- `cancel_withdrawal(erc20_token=None, wait_options=None)`
+- `finalize_withdrawal(erc20_token=None, wait_options=None)`
 
-Available under `client.rpc` (requires an admin API key):
+### RecipientClient Methods (`client.recipient`)
+
+- `create_tab(user_address, recipient_address, erc20_token, ttl, guarantee_version=1)` → `(tab_id, asset_address, next_req_id)`
+- `get_tab_payment_status(tab_id)` → `TabPaymentStatus`
+- `issue_payment_guarantee(claims, signature, scheme)` → `BLSCert`
+- `verify_payment_guarantee(cert)` → `PaymentGuaranteeClaims`
+- `remunerate(cert, wait_options=None)` — settle a guarantee on-chain
+- `list_settled_tabs()` → `List[TabInfo]`
+- `list_pending_remunerations()` → `List[PendingRemunerationInfo]`
+- `get_tab(tab_id)` → `Optional[TabInfo]`
+- `list_recipient_tabs(settlement_statuses=None)` → `List[TabInfo]`
+- `get_tab_guarantees(tab_id)` → `List[GuaranteeInfo]`
+- `get_latest_guarantee(tab_id)` → `Optional[GuaranteeInfo]`
+- `get_guarantee(tab_id, req_id)` → `Optional[GuaranteeInfo]`
+- `list_recipient_payments()` → `List[RecipientPaymentInfo]`
+- `get_collateral_events_for_tab(tab_id)` → `List[CollateralEventInfo]`
+- `get_user_asset_balance(user_address, asset_address)` → `Optional[AssetBalanceInfo]`
+
+### RPC Methods (`client.rpc`)
+
+Public methods available without an admin key:
+
+- `get_supported_tokens()` → `SupportedTokensResponse` — returns `chain_id` and the list of `SupportedTokenInfo` (symbol, address, decimals) accepted by the network
+
+Admin methods (requires `client.rpc.with_admin_api_key("ak_...")`):
 
 - `update_user_suspension(user_address, suspended)`
 - `create_admin_api_key({"name": ..., "scopes": [...]})`
 - `list_admin_api_keys()`
 - `revoke_admin_api_key(key_id)`
+
+### TxReceiptWaitOptions
+
+Controls how long the SDK waits for on-chain confirmation after broadcasting a transaction:
+
+```python
+from fourmica_sdk import TxReceiptWaitOptions
+
+opts = TxReceiptWaitOptions(timeout_secs=120, poll_latency_secs=3)
+await client.user.deposit(amount, wait_options=opts)
+```
+
+Defaults: `timeout_secs=60`, `poll_latency_secs=2`.
 
 ## Error Handling
 
